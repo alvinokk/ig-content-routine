@@ -2,8 +2,8 @@ name: IG Content Tracker
 
 on:
   schedule:
-    # Every 2 days at 03:00 UTC (11:00 Singapore time)
-    - cron: "0 3 */2 * *"
+    # Every Monday at 03:00 UTC (11:00 Singapore time)
+    - cron: "0 3 * * 1"
   workflow_dispatch:
 
 jobs:
