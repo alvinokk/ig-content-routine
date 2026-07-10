@@ -547,13 +547,12 @@ def cleanup_stale_records(pat):
     today = datetime.now(timezone.utc).date()
     cutoff = (today - timedelta(days=STALE_DAYS)).isoformat()
 
-    # Fetch all records with just the synced_date field
+    # Fetch synced date + status (status protects in-progress work)
     all_records = []
     offset = None
-    field_param = urllib.parse.quote(FIELD_MAP["synced_date"])
     base_url = (
         f"https://api.airtable.com/v0/{AIRTABLE_BASE}/{AIRTABLE_TABLE}"
-        f"?fields%5B%5D={field_param}"
+        f"?fields%5B%5D=Last%20Synced&fields%5B%5D=Status"
     )
     headers = {"Authorization": f"Bearer {pat}"}
 
@@ -563,8 +562,10 @@ def cleanup_stale_records(pat):
             url += f"&offset={urllib.parse.quote(offset)}"
         resp = _request(url, headers=headers, timeout=30)
         for rec in resp.get("records", []):
-            synced = (rec.get("fields") or {}).get(FIELD_MAP["synced_date"], "")
-            all_records.append({"id": rec["id"], "synced": synced})
+            f = rec.get("fields") or {}
+            synced = f.get("Last Synced") or f.get(FIELD_MAP["synced_date"]) or ""
+            all_records.append({"id": rec["id"], "synced": synced,
+                                "status": f.get("Status") or ""})
         offset = resp.get("offset")
         if not offset:
             break
@@ -575,8 +576,10 @@ def cleanup_stale_records(pat):
     # Identify records to delete
     to_delete = set()
 
-    # 1) Stale records (not synced in STALE_DAYS)
+    # 1) Stale records (not synced in STALE_DAYS) — never touch in-progress work
     for rec in all_records:
+        if rec["status"] == "拍摄中":
+            continue
         if rec["synced"] and rec["synced"] < cutoff:
             to_delete.add(rec["id"])
 
@@ -587,7 +590,8 @@ def cleanup_stale_records(pat):
     # 2) If still over MAX_RECORDS after removing stale, remove oldest
     remaining = total - len(to_delete)
     if remaining > MAX_RECORDS:
-        non_deleted = [r for r in all_records if r["id"] not in to_delete]
+        non_deleted = [r for r in all_records
+                       if r["id"] not in to_delete and r["status"] != "拍摄中"]
         non_deleted.sort(key=lambda r: r["synced"] or "0000-00-00")
         overflow = remaining - MAX_RECORDS
         for rec in non_deleted[:overflow]:
