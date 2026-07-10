@@ -5,10 +5,12 @@ Viral Posts Dashboard Generator
 Pulls both Airtable tables (Viral Posts + AI Post Chalette) and bakes a
 static dashboard into docs/index.html for GitHub Pages.
 
-Videos play inline via Instagram's official /embed/ iframe, so nothing
-expires and no tokens are exposed in the page.
+- Videos play inline via Instagram's official /embed/ iframe (never expires).
+- Status tabs (未处理/拍摄中/已处理/跳过) write back to Airtable directly
+  from the browser, using a team key the viewer enters once (stored in
+  localStorage — never embedded in this page or repo).
 
-Token: AIRTABLE_PAT (environment variable).
+Token: AIRTABLE_PAT (environment variable, build-time read only).
 """
 
 import json
@@ -23,6 +25,7 @@ TABLES = [
     {"id": "tblfMRnvStZziWkPq", "label": "IG Competitors"},
     {"id": "tbl9jmrGp0DK1vJtt", "label": "AI Competitors"},
 ]
+STATUSES = ["未处理", "拍摄中", "已处理", "跳过"]
 
 OUT_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "docs", "index.html")
 
@@ -46,7 +49,7 @@ def fetch_table(pat, table_id):
     return records
 
 
-def normalize(rec, tracker):
+def normalize(rec, table):
     f = rec.get("fields", {})
     post_id = str(f.get("Post ID") or "").strip()
     if not post_id:
@@ -54,7 +57,9 @@ def normalize(rec, tracker):
     er = f.get("Engagement Rate") or 0
     return {
         "id": post_id,
-        "tracker": tracker,
+        "rec": rec.get("id"),
+        "tbl": table["id"],
+        "tracker": table["label"],
         "competitor": f.get("Competitor") or "",
         "caption": (f.get("Caption") or "")[:600],
         "type": f.get("Post Type") or "",
@@ -67,6 +72,7 @@ def normalize(rec, tracker):
         "video": bool(f.get("Is Video")),
         "ratio": f.get("Comments-to-Likes Ratio") or 0,
         "score": f.get("Viral Score") or 0,
+        "status": f.get("Status") or "未处理",
     }
 
 
@@ -81,33 +87,35 @@ HTML_TEMPLATE = """<!DOCTYPE html>
   :root {
     --bg: #0d1117; --card: #161b22; --border: #21262d;
     --text: #e6edf3; --muted: #8b949e; --accent: #58a6ff;
-    --green: #3fb950; --orange: #d29922; --pink: #f778ba;
+    --green: #3fb950; --orange: #d29922; --pink: #f778ba; --red: #f85149;
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { background: var(--bg); color: var(--text);
     font-family: -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; }
   header { position: sticky; top: 0; z-index: 50; background: rgba(13,17,23,.95);
-    backdrop-filter: blur(8px); border-bottom: 1px solid var(--border); padding: 14px 20px; }
+    backdrop-filter: blur(8px); border-bottom: 1px solid var(--border); padding: 12px 20px; }
   .hrow { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; max-width: 1400px; margin: 0 auto; }
   h1 { font-size: 17px; margin-right: auto; white-space: nowrap; }
   h1 small { color: var(--muted); font-weight: 400; font-size: 12px; margin-left: 8px; }
-  select, .toggle { background: var(--card); color: var(--text); border: 1px solid var(--border);
+  select, .btn { background: var(--card); color: var(--text); border: 1px solid var(--border);
     border-radius: 8px; padding: 7px 10px; font-size: 13px; cursor: pointer; }
-  .toggle.on { border-color: var(--accent); color: var(--accent); }
-  .stats { display: flex; gap: 8px; flex-wrap: wrap; max-width: 1400px; margin: 10px auto 0; }
-  .chip { background: var(--card); border: 1px solid var(--border); border-radius: 999px;
-    padding: 4px 12px; font-size: 12px; color: var(--muted); }
-  .chip b { color: var(--text); }
+  .btn.on { border-color: var(--accent); color: var(--accent); }
+  .tabs { display: flex; gap: 6px; flex-wrap: wrap; max-width: 1400px; margin: 10px auto 0; }
+  .tab { background: var(--card); border: 1px solid var(--border); border-radius: 999px;
+    padding: 6px 14px; font-size: 13px; color: var(--muted); cursor: pointer; user-select: none; }
+  .tab.on { border-color: var(--accent); color: var(--accent); background: rgba(88,166,255,.08); }
+  .tab b { font-weight: 600; }
   main { max-width: 1400px; margin: 20px auto; padding: 0 20px; }
   .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 18px; }
   .card { background: var(--card); border: 1px solid var(--border); border-radius: 14px;
-    overflow: hidden; display: flex; flex-direction: column; }
+    overflow: hidden; display: flex; flex-direction: column; transition: border-color .3s; }
+  .card.saved { border-color: var(--green); }
   .embed { position: relative; width: 100%; aspect-ratio: 4/5; background: #010409; }
   .embed iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
   .embed .ph { position: absolute; inset: 0; display: flex; flex-direction: column; gap: 8px;
     align-items: center; justify-content: center; color: var(--muted); font-size: 13px; }
   .meta { padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; }
-  .row1 { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+  .row1 { display: flex; align-items: center; gap: 8px; font-size: 13px; flex-wrap: wrap; }
   .who { font-weight: 600; color: var(--accent); text-decoration: none; }
   .badge { font-size: 11px; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--border); color: var(--muted); }
   .date { margin-left: auto; color: var(--muted); font-size: 11px; }
@@ -120,11 +128,21 @@ HTML_TEMPLATE = """<!DOCTYPE html>
   .cap { color: var(--muted); font-size: 12.5px; line-height: 1.5; display: -webkit-box;
     -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; cursor: pointer; }
   .cap.open { -webkit-line-clamp: unset; }
+  .srow { display: flex; align-items: center; gap: 8px; }
+  .srow label { font-size: 12px; color: var(--muted); }
+  .status { flex: 1; }
+  .status.s未处理 { color: var(--muted); }
+  .status.s拍摄中 { color: var(--orange); border-color: var(--orange); }
+  .status.s已处理 { color: var(--green); border-color: var(--green); }
+  .status.s跳过 { color: var(--red); border-color: var(--red); }
   .more { text-align: center; margin: 26px 0 40px; }
   .more button { background: var(--card); color: var(--accent); border: 1px solid var(--border);
     border-radius: 10px; padding: 10px 26px; font-size: 14px; cursor: pointer; }
   .empty { color: var(--muted); text-align: center; padding: 60px 0; }
   footer { color: var(--muted); font-size: 11px; text-align: center; padding: 20px; }
+  #toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
+    background: var(--card); border: 1px solid var(--border); border-radius: 10px;
+    padding: 10px 18px; font-size: 13px; display: none; z-index: 99; }
 </style>
 </head>
 <body>
@@ -140,40 +158,69 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       <option value="likes">按 Likes</option>
       <option value="date">按 最新日期</option>
     </select>
-    <button class="toggle" id="fVideo">🎬 只看视频</button>
+    <button class="btn" id="fVideo">🎬 只看视频</button>
+    <button class="btn" id="keyBtn" title="输入团队密钥后才能更新状态">🔑</button>
   </div>
-  <div class="stats" id="stats"></div>
+  <div class="tabs" id="tabs"></div>
 </header>
 <main>
   <div class="grid" id="grid"></div>
   <div class="empty" id="empty" style="display:none">没有符合条件的帖子</div>
   <div class="more" id="moreWrap" style="display:none"><button id="moreBtn">载入更多</button></div>
 </main>
-<footer>数据来源 Airtable · 每周一自动更新 · 视频由 Instagram 官方 embed 播放</footer>
+<footer>数据来源 Airtable · 每周一自动更新 · 状态更改即时同步全团队 · 视频由 Instagram 官方 embed 播放</footer>
+<div id="toast"></div>
 <script id="data" type="application/json">__DATA__</script>
 <script>
 const DATA = JSON.parse(document.getElementById('data').textContent);
+const BASE = '__BASE__';
+const TABLE_IDS = __TABLE_IDS__;
+const STATUSES = __STATUSES__;
 document.getElementById('updated').textContent = '更新于 __UPDATED__';
 const PAGE = 48;
 let shown = PAGE;
 let videoOnly = false;
+let curTab = '全部';
 
 const $ = id => document.getElementById(id);
 const fmt = n => n >= 1e6 ? (n/1e6).toFixed(1)+'M' : n >= 1e3 ? (n/1e3).toFixed(1)+'K' : String(n);
+const getKey = () => localStorage.getItem('team_key') || '';
+const byRec = {}; DATA.forEach(d => byRec[d.rec] = d);
 
-// build competitor options
+function toast(msg, ok) {
+  const t = $('toast'); t.textContent = msg; t.style.display = 'block';
+  t.style.borderColor = ok ? 'var(--green)' : 'var(--red)';
+  clearTimeout(t._h); t._h = setTimeout(() => t.style.display = 'none', 2600);
+}
+
+// filters
 const comps = [...new Set(DATA.map(d => d.competitor))].sort();
 comps.forEach(c => { const o = document.createElement('option'); o.value = c; o.textContent = '@'+c; $('fComp').appendChild(o); });
-const trackers = [...new Set(DATA.map(d => d.tracker))];
-trackers.forEach(t => { const o = document.createElement('option'); o.value = t; o.textContent = t; $('fTracker').appendChild(o); });
+[...new Set(DATA.map(d => d.tracker))].forEach(t => { const o = document.createElement('option'); o.value = t; o.textContent = t; $('fTracker').appendChild(o); });
 
 function filtered() {
   const t = $('fTracker').value, c = $('fComp').value, s = $('fSort').value;
-  let arr = DATA.filter(d => (!t || d.tracker === t) && (!c || d.competitor === c) && (!videoOnly || d.video));
+  let arr = DATA.filter(d => (!t || d.tracker === t) && (!c || d.competitor === c) && (!videoOnly || d.video)
+    && (curTab === '全部' || d.status === curTab));
   const key = { score:'score', er:'er', comments:'comments', likes:'likes' }[s];
   if (s === 'date') arr.sort((a,b) => (b.date||'').localeCompare(a.date||''));
   else arr.sort((a,b) => (b[key]||0) - (a[key]||0));
   return arr;
+}
+
+function renderTabs() {
+  const t = $('fTracker').value, c = $('fComp').value;
+  const pool = DATA.filter(d => (!t || d.tracker === t) && (!c || d.competitor === c) && (!videoOnly || d.video));
+  const counts = { '全部': pool.length };
+  STATUSES.forEach(s => counts[s] = pool.filter(d => d.status === s).length);
+  $('tabs').innerHTML = '';
+  ['全部', ...STATUSES].forEach(name => {
+    const el = document.createElement('div');
+    el.className = 'tab' + (curTab === name ? ' on' : '');
+    el.innerHTML = `${name} <b>${counts[name]}</b>`;
+    el.onclick = () => { curTab = name; shown = PAGE; render(); };
+    $('tabs').appendChild(el);
+  });
 }
 
 const io = new IntersectionObserver(entries => {
@@ -190,6 +237,30 @@ const io = new IntersectionObserver(entries => {
     }
   });
 }, { rootMargin: '400px' });
+
+async function setStatus(d, val, sel, cardEl) {
+  let key = getKey();
+  if (!key) { promptKey(); key = getKey(); if (!key) { sel.value = d.status; return; } }
+  sel.disabled = true;
+  try {
+    const r = await fetch(`https://api.airtable.com/v0/${BASE}/${d.tbl}/${d.rec}`, {
+      method: 'PATCH',
+      headers: { 'Authorization': 'Bearer ' + key, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fields: { 'Status': val }, typecast: true })
+    });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    d.status = val;
+    sel.className = 'status btn s' + val;
+    cardEl.classList.add('saved'); setTimeout(() => cardEl.classList.remove('saved'), 1200);
+    toast('✓ 已更新为「' + val + '」', true);
+    renderTabs();
+    if (curTab !== '全部' && curTab !== val) { render(); }
+  } catch (e) {
+    sel.value = d.status;
+    toast('更新失败: ' + e.message + (String(e.message).includes('401') || String(e.message).includes('403') ? ' — 密钥无效?' : ''), false);
+  }
+  sel.disabled = false;
+}
 
 function card(d) {
   const el = document.createElement('div'); el.className = 'card';
@@ -211,29 +282,65 @@ function card(d) {
         <span class="num">👥 <b>${fmt(d.followers)}</b></span>
       </div>
       <div class="cap" onclick="this.classList.toggle('open')"></div>
+      <div class="srow"><label>状态</label><select class="status btn s${d.status}"></select></div>
     </div>`;
   el.querySelector('.cap').textContent = d.caption || '';
+  const sel = el.querySelector('.status');
+  STATUSES.forEach(s => { const o = document.createElement('option'); o.value = s; o.textContent = s; sel.appendChild(o); });
+  sel.value = d.status;
+  sel.onchange = () => setStatus(d, sel.value, sel, el);
   io.observe(el.querySelector('.embed'));
   return el;
 }
 
 function render() {
+  renderTabs();
   const arr = filtered();
   const grid = $('grid'); grid.innerHTML = '';
   arr.slice(0, shown).forEach(d => grid.appendChild(card(d)));
   $('empty').style.display = arr.length ? 'none' : '';
   $('moreWrap').style.display = arr.length > shown ? '' : 'none';
-  const vids = arr.filter(d => d.video).length;
-  $('stats').innerHTML =
-    `<span class="chip">帖子 <b>${arr.length}</b></span>` +
-    `<span class="chip">视频 <b>${vids}</b></span>` +
-    `<span class="chip">账号 <b>${new Set(arr.map(d=>d.competitor)).size}</b></span>`;
+}
+
+function promptKey() {
+  const cur = getKey();
+  const v = prompt('输入团队密钥(用于更新状态,只需输入一次):', cur);
+  if (v !== null) {
+    if (v.trim()) { localStorage.setItem('team_key', v.trim()); toast('✓ 密钥已保存', true); refreshStatuses(); }
+    else { localStorage.removeItem('team_key'); toast('密钥已清除', true); }
+    $('keyBtn').classList.toggle('on', !!getKey());
+  }
+}
+$('keyBtn').onclick = promptKey;
+$('keyBtn').classList.toggle('on', !!getKey());
+
+// live status refresh (so weekly-baked page shows current statuses)
+async function refreshStatuses() {
+  const key = getKey(); if (!key) return;
+  try {
+    for (const tbl of TABLE_IDS) {
+      let offset = '';
+      do {
+        const u = `https://api.airtable.com/v0/${BASE}/${tbl}?pageSize=100&fields%5B%5D=Status` + (offset ? `&offset=${encodeURIComponent(offset)}` : '');
+        const r = await fetch(u, { headers: { 'Authorization': 'Bearer ' + key } });
+        if (!r.ok) return;
+        const j = await r.json();
+        (j.records || []).forEach(rec => {
+          const d = byRec[rec.id];
+          if (d) d.status = (rec.fields && rec.fields['Status']) || '未处理';
+        });
+        offset = j.offset || '';
+      } while (offset);
+    }
+    render();
+  } catch (e) { /* offline etc — keep baked statuses */ }
 }
 
 ['fTracker','fComp','fSort'].forEach(id => $(id).onchange = () => { shown = PAGE; render(); });
 $('fVideo').onclick = () => { videoOnly = !videoOnly; $('fVideo').classList.toggle('on', videoOnly); shown = PAGE; render(); };
 $('moreBtn').onclick = () => { shown += PAGE; render(); };
 render();
+refreshStatuses();
 </script>
 </body>
 </html>
@@ -252,7 +359,7 @@ def main():
         recs = fetch_table(pat, t["id"])
         n = 0
         for rec in recs:
-            row = normalize(rec, t["label"])
+            row = normalize(rec, t)
             if row:
                 posts.append(row)
                 n += 1
@@ -267,7 +374,14 @@ def main():
 
     updated = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     payload = json.dumps(unique, ensure_ascii=False).replace("</", "<\\/")
-    html = HTML_TEMPLATE.replace("__DATA__", payload).replace("__UPDATED__", updated)
+    html = (
+        HTML_TEMPLATE
+        .replace("__DATA__", payload)
+        .replace("__UPDATED__", updated)
+        .replace("__BASE__", AIRTABLE_BASE)
+        .replace("__TABLE_IDS__", json.dumps([t["id"] for t in TABLES]))
+        .replace("__STATUSES__", json.dumps(STATUSES, ensure_ascii=False))
+    )
 
     os.makedirs(os.path.dirname(OUT_PATH), exist_ok=True)
     with open(OUT_PATH, "w", encoding="utf-8") as f:
