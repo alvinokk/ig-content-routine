@@ -99,93 +99,224 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex">
 <title>Viral Posts Dashboard</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
 <style>
   :root {
-    --bg: #0d1117; --card: #161b22; --border: #21262d;
-    --text: #e6edf3; --muted: #8b949e; --accent: #58a6ff;
-    --green: #3fb950; --orange: #d29922; --pink: #f778ba; --red: #f85149;
+    --bg: #0a0d13;
+    --card: #11151d;
+    --card-hi: #151a24;
+    --border: #1d2430;
+    --border-hi: #2c3546;
+    --text: #e8ecf3;
+    --muted: #8a94a6;
+    --faint: #5b6577;
+    --accent: #5ea1ff;
+    --green: #3fd68f;
+    --orange: #f0a33f;
+    --pink: #ff6b9d;
+    --red: #ff5c5c;
+    --fire1: #ff8a3d;
+    --fire2: #ff4d6d;
+    --font: 'Inter', -apple-system, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+    --disp: 'Space Grotesk', 'Inter', -apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif;
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { background: var(--bg); color: var(--text);
-    font-family: -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; }
-  header { position: sticky; top: 0; z-index: 50; background: rgba(13,17,23,.95);
-    backdrop-filter: blur(8px); border-bottom: 1px solid var(--border); padding: 12px 20px; }
-  .hrow { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; max-width: 1400px; margin: 0 auto; }
-  h1 { font-size: 17px; margin-right: auto; white-space: nowrap; }
-  h1 small { color: var(--muted); font-weight: 400; font-size: 12px; margin-left: 8px; }
-  select, .btn { background: var(--card); color: var(--text); border: 1px solid var(--border);
-    border-radius: 8px; padding: 7px 10px; font-size: 13px; cursor: pointer; }
-  .btn.on { border-color: var(--accent); color: var(--accent); }
+  html { scrollbar-color: #232c3b var(--bg); }
+  body { background: var(--bg); color: var(--text); font-family: var(--font);
+    -webkit-font-smoothing: antialiased; }
+  ::selection { background: rgba(94,161,255,.3); }
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-track { background: var(--bg); }
+  ::-webkit-scrollbar-thumb { background: #232c3b; border-radius: 8px; }
+  ::-webkit-scrollbar-thumb:hover { background: #2c3546; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 6px; }
+
+  .ic { width: 14px; height: 14px; stroke: currentColor; stroke-width: 2;
+    stroke-linecap: round; stroke-linejoin: round; fill: none; flex: none; }
+
+  header { position: sticky; top: 0; z-index: 50; background: rgba(10,13,19,.86);
+    backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+    border-bottom: 1px solid var(--border); padding: 13px 20px 12px; }
+  .hrow { display: flex; flex-wrap: wrap; gap: 9px; align-items: center; max-width: 1440px; margin: 0 auto; }
+  .brand { display: flex; align-items: center; gap: 10px; margin-right: auto; }
+  .mark { width: 31px; height: 31px; border-radius: 9px; display: grid; place-items: center;
+    background: linear-gradient(135deg, var(--fire1), var(--fire2));
+    box-shadow: 0 4px 16px rgba(255,92,80,.35); }
+  .mark .ic { width: 17px; height: 17px; color: #fff; }
+  h1 { font-family: var(--disp); font-size: 16.5px; font-weight: 700; letter-spacing: .2px; white-space: nowrap; line-height: 1.15; }
+  h1 small { display: block; color: var(--faint); font-family: var(--font); font-weight: 400;
+    font-size: 10.5px; letter-spacing: 0; }
+
+  .search { position: relative; }
+  .search > .ic { position: absolute; left: 11px; top: 50%; transform: translateY(-50%);
+    color: var(--faint); width: 13.5px; pointer-events: none; }
   input#fSearch { background: var(--card); color: var(--text); border: 1px solid var(--border);
-    border-radius: 8px; padding: 7px 10px; font-size: 13px; width: 180px; }
-  .abtn { background: #0d1117; color: var(--muted); border: 1px solid var(--border);
-    border-radius: 8px; padding: 5px 10px; font-size: 12px; cursor: pointer; text-decoration: none; }
-  .abtn:hover { color: var(--accent); border-color: var(--accent); }
-  .badge.bnew { color: var(--pink); border-color: var(--pink); }
-  .badge.bhorse { color: var(--orange); border-color: var(--orange); }
-  .num.x b { color: var(--orange); }
-  .chips { display: flex; gap: 6px; flex-wrap: wrap; max-width: 1400px; margin: 8px auto 0; align-items: center; }
-  .chips .lbl { font-size: 12px; color: var(--muted); }
-  .chip2 { background: var(--card); border: 1px solid var(--border); border-radius: 999px;
-    padding: 4px 11px; font-size: 12px; color: var(--muted); cursor: pointer; user-select: none; }
-  .chip2.on { border-color: var(--orange); color: var(--orange); background: rgba(210,153,34,.08); }
-  .badge.bbait { color: var(--accent); border-color: var(--accent); }
-  .cap b { color: var(--text); font-weight: 600; }
-  .tabs { display: flex; gap: 6px; flex-wrap: wrap; max-width: 1400px; margin: 10px auto 0; }
-  .tab { background: var(--card); border: 1px solid var(--border); border-radius: 999px;
-    padding: 6px 14px; font-size: 13px; color: var(--muted); cursor: pointer; user-select: none; }
-  .tab.on { border-color: var(--accent); color: var(--accent); background: rgba(88,166,255,.08); }
-  .tab b { font-weight: 600; }
+    border-radius: 10px; padding: 8px 12px 8px 32px; font-size: 13px; font-family: var(--font);
+    width: 200px; transition: border-color .18s, background .18s; }
+  input#fSearch:hover { border-color: var(--border-hi); }
+  input#fSearch:focus { border-color: var(--accent); outline: none; }
+  input#fSearch::placeholder { color: var(--faint); }
+
+  select, .btn { background: var(--card); color: var(--text); border: 1px solid var(--border);
+    border-radius: 10px; padding: 8px 11px; font-size: 13px; font-family: var(--font);
+    cursor: pointer; transition: border-color .18s, background .18s, color .18s;
+    display: inline-flex; align-items: center; gap: 6px; }
+  select:hover, .btn:hover { border-color: var(--border-hi); background: var(--card-hi); }
+  .btn:active { transform: scale(.97); }
+  .btn.on { border-color: var(--accent); color: var(--accent); background: rgba(94,161,255,.08); }
+
+  .tabs { display: flex; gap: 7px; flex-wrap: wrap; max-width: 1440px; margin: 12px auto 0; }
+  .tab { display: inline-flex; align-items: center; gap: 7px; background: var(--card);
+    border: 1px solid var(--border); border-radius: 999px; padding: 6.5px 14px;
+    font-size: 13px; color: var(--muted); cursor: pointer; user-select: none;
+    transition: border-color .18s, background .18s, color .18s, transform .18s; }
+  .tab:hover { border-color: var(--border-hi); color: var(--text); }
+  .tab .cnt { font-family: var(--disp); font-weight: 600; font-size: 11px;
+    background: rgba(255,255,255,.06); padding: 1.5px 7.5px; border-radius: 99px;
+    font-variant-numeric: tabular-nums; }
+  .tab.on { color: var(--text);
+    background: linear-gradient(135deg, rgba(255,138,61,.15), rgba(255,77,109,.15));
+    border-color: rgba(255,120,90,.45); }
+  .tab.on .cnt { background: rgba(255,120,90,.25); }
   body.dragging .tab.droppable { border-style: dashed; border-color: var(--accent); }
-  .tab.over { background: rgba(88,166,255,.25); color: var(--text); transform: scale(1.08); }
+  .tab.over { background: rgba(94,161,255,.22); color: var(--text); transform: scale(1.07); }
+
+  .chips { display: flex; gap: 6px; flex-wrap: wrap; max-width: 1440px; margin: 9px auto 0; align-items: center; }
+  .chips .lbl { font-size: 12px; color: var(--faint); margin-right: 2px; }
+  .chip2 { display: inline-flex; align-items: center; gap: 5.5px; background: var(--card);
+    border: 1px solid var(--border); border-radius: 999px; padding: 4.5px 12px;
+    font-size: 12px; color: var(--muted); cursor: pointer; user-select: none;
+    transition: border-color .18s, color .18s, background .18s;
+    font-variant-numeric: tabular-nums; }
+  .chip2 .ic { width: 12.5px; height: 12.5px; }
+  .chip2:hover { border-color: var(--border-hi); color: var(--text); }
+  .chip2.on { border-color: rgba(240,163,63,.6); color: var(--orange); background: rgba(240,163,63,.08); }
+
+  main { max-width: 1440px; margin: 22px auto; padding: 0 20px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(305px, 1fr)); gap: 18px; }
+
+  .card { position: relative; background: var(--card); border: 1px solid var(--border);
+    border-radius: 16px; overflow: hidden; display: flex; flex-direction: column;
+    transition: transform .22s cubic-bezier(.2,.7,.3,1), border-color .22s, box-shadow .22s;
+    animation: fadeUp .45s cubic-bezier(.2,.7,.3,1) both; }
+  .card:hover { transform: translateY(-3px); border-color: var(--border-hi);
+    box-shadow: 0 12px 32px rgba(0,0,0,.45); }
+  .card.outlier::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px;
+    background: linear-gradient(90deg, var(--fire1), var(--fire2)); z-index: 2; }
   .card[draggable] { cursor: grab; }
   .card.lifting { opacity: .45; }
-  .handle { color: var(--muted); font-size: 14px; cursor: grab; user-select: none; }
-  main { max-width: 1400px; margin: 20px auto; padding: 0 20px; }
-  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 18px; }
-  .card { background: var(--card); border: 1px solid var(--border); border-radius: 14px;
-    overflow: hidden; display: flex; flex-direction: column; transition: border-color .3s; }
   .card.saved { border-color: var(--green); }
-  .embed { position: relative; width: 100%; aspect-ratio: 4/5; background: #010409; }
+  @keyframes fadeUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+
+  .embed { position: relative; width: 100%; aspect-ratio: 4/5; background: #080b10; }
   .embed iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
-  .embed .ph { position: absolute; inset: 0; display: flex; flex-direction: column; gap: 8px;
-    align-items: center; justify-content: center; color: var(--muted); font-size: 13px; }
-  .meta { padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; }
-  .row1 { display: flex; align-items: center; gap: 8px; font-size: 13px; flex-wrap: wrap; }
+  .embed .ph { position: absolute; inset: 0; display: grid; place-items: center;
+    background: linear-gradient(110deg, #0b0e15 8%, #121826 18%, #0b0e15 33%);
+    background-size: 200% 100%; animation: shimmer 1.5s linear infinite; }
+  .embed .ph .ic { width: 30px; height: 30px; color: #2a3342; stroke-width: 1.6; }
+  @keyframes shimmer { to { background-position-x: -200%; } }
+
+  .meta { padding: 13px 15px 14px; display: flex; flex-direction: column; gap: 9px; }
+  .row1 { display: flex; align-items: center; gap: 7px; font-size: 13px; flex-wrap: wrap; }
+  .handle { color: #3a4456; cursor: grab; display: inline-flex; }
+  .handle .ic { width: 13px; height: 13px; }
   .who { font-weight: 600; color: var(--accent); text-decoration: none; }
-  .badge { font-size: 11px; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--border); color: var(--muted); }
-  .date { margin-left: auto; color: var(--muted); font-size: 11px; }
+  .who:hover { text-decoration: underline; }
+  .badge { display: inline-flex; align-items: center; gap: 4px; font-size: 10.5px; font-weight: 500;
+    padding: 2.5px 8px; border-radius: 999px; border: 1px solid var(--border); color: var(--muted); }
+  .badge .ic { width: 10.5px; height: 10.5px; }
+  .badge.bnew { color: var(--pink); border-color: rgba(255,107,157,.45); background: rgba(255,107,157,.07); }
+  .badge.bhorse { color: var(--orange); border-color: rgba(240,163,63,.45); background: rgba(240,163,63,.07); }
+  .badge.bbait { color: var(--accent); border-color: rgba(94,161,255,.4); background: rgba(94,161,255,.07); }
+  .date { margin-left: auto; color: var(--faint); font-size: 11px; font-variant-numeric: tabular-nums; }
+
   .nums { display: flex; gap: 6px; flex-wrap: wrap; }
-  .num { background: #0d1117; border: 1px solid var(--border); border-radius: 8px;
-    padding: 5px 9px; font-size: 11.5px; color: var(--muted); }
-  .num b { color: var(--text); font-size: 12.5px; }
-  .num.hot b { color: var(--pink); }
-  .num.er b { color: var(--green); }
-  .cap { color: var(--muted); font-size: 12.5px; line-height: 1.5; display: -webkit-box;
+  .num { display: inline-flex; align-items: center; gap: 5px; background: #0c0f16;
+    border: 1px solid var(--border); border-radius: 9px; padding: 5px 9px;
+    font-size: 11px; color: var(--muted); }
+  .num .ic { width: 11.5px; height: 11.5px; }
+  .num b { font-family: var(--disp); color: var(--text); font-size: 12.5px; font-weight: 600;
+    font-variant-numeric: tabular-nums; }
+  .num.hot { border-color: rgba(255,122,77,.35); }
+  .num.hot .ic, .num.hot b { color: #ff7a4d; }
+  .num.x { border-color: rgba(240,163,63,.35); }
+  .num.x .ic, .num.x b { color: var(--orange); }
+  .num.er .ic, .num.er b { color: var(--green); }
+
+  .cap { color: var(--muted); font-size: 12.5px; line-height: 1.55; display: -webkit-box;
     -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; cursor: pointer; }
   .cap.open { -webkit-line-clamp: unset; }
-  .srow { display: flex; align-items: center; gap: 8px; }
-  .srow label { font-size: 12px; color: var(--muted); }
-  .status { flex: 1; }
+  .cap b { color: var(--text); font-weight: 600; }
+
+  .srow { display: flex; align-items: center; gap: 7px; }
+  .srow label { font-size: 12px; color: var(--faint); }
+  .status { flex: 1; padding: 6px 9px; font-size: 12.5px; }
   .status.s未处理 { color: var(--muted); }
-  .status.s拍摄中 { color: var(--orange); border-color: var(--orange); }
-  .status.s已处理 { color: var(--green); border-color: var(--green); }
-  .status.s跳过 { color: var(--red); border-color: var(--red); }
-  .more { text-align: center; margin: 26px 0 40px; }
+  .status.s拍摄中 { color: var(--orange); border-color: rgba(240,163,63,.5); }
+  .status.s已处理 { color: var(--green); border-color: rgba(63,214,143,.5); }
+  .status.s跳过 { color: var(--red); border-color: rgba(255,92,92,.5); }
+  .abtn { display: inline-flex; align-items: center; gap: 5px; background: #0c0f16;
+    color: var(--muted); border: 1px solid var(--border); border-radius: 9px;
+    padding: 6px 10px; font-size: 11.5px; font-family: var(--font); cursor: pointer;
+    text-decoration: none; transition: color .18s, border-color .18s, transform .1s; }
+  .abtn .ic { width: 12px; height: 12px; }
+  .abtn:hover { color: var(--accent); border-color: rgba(94,161,255,.5); }
+  .abtn:active { transform: scale(.95); }
+
+  .more { text-align: center; margin: 28px 0 44px; }
   .more button { background: var(--card); color: var(--accent); border: 1px solid var(--border);
-    border-radius: 10px; padding: 10px 26px; font-size: 14px; cursor: pointer; }
-  .empty { color: var(--muted); text-align: center; padding: 60px 0; }
-  footer { color: var(--muted); font-size: 11px; text-align: center; padding: 20px; }
-  #toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
-    background: var(--card); border: 1px solid var(--border); border-radius: 10px;
-    padding: 10px 18px; font-size: 13px; display: none; z-index: 99; }
+    border-radius: 12px; padding: 11px 30px; font-size: 14px; font-family: var(--font);
+    cursor: pointer; transition: border-color .18s, background .18s; }
+  .more button:hover { border-color: var(--border-hi); background: var(--card-hi); }
+
+  .empty { color: var(--faint); text-align: center; padding: 70px 0; display: flex;
+    flex-direction: column; align-items: center; gap: 12px; font-size: 14px; }
+  .empty .ic { width: 34px; height: 34px; stroke-width: 1.5; color: #2c3546; }
+
+  footer { color: var(--faint); font-size: 11px; text-align: center; padding: 22px; }
+
+  #toast { position: fixed; bottom: 26px; left: 50%; transform: translateX(-50%) translateY(8px);
+    background: var(--card-hi); border: 1px solid var(--border-hi); border-radius: 11px;
+    padding: 11px 20px; font-size: 13px; display: none; z-index: 99; opacity: 0;
+    box-shadow: 0 12px 32px rgba(0,0,0,.5); transition: opacity .2s, transform .2s; }
+  #toast.show { display: block; opacity: 1; transform: translateX(-50%) translateY(0); }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { animation: none !important; transition: none !important; }
+  }
 </style>
 </head>
 <body>
+<svg style="display:none" xmlns="http://www.w3.org/2000/svg">
+  <symbol id="i-flame" viewBox="0 0 24 24"><path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></symbol>
+  <symbol id="i-heart" viewBox="0 0 24 24"><path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.29 1.51 4.04 3 5.5l7 7Z"/></symbol>
+  <symbol id="i-msg" viewBox="0 0 24 24"><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/></symbol>
+  <symbol id="i-users" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></symbol>
+  <symbol id="i-trend" viewBox="0 0 24 24"><path d="M22 7l-8.5 8.5-5-5L2 17"/><path d="M16 7h6v6"/></symbol>
+  <symbol id="i-zap" viewBox="0 0 24 24"><path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z"/></symbol>
+  <symbol id="i-star" viewBox="0 0 24 24"><path d="M12 2l2.9 6.9 7.1.6-5.4 4.7 1.6 7-6.2-3.7-6.2 3.7 1.6-7L2 9.5l7.1-.6z"/></symbol>
+  <symbol id="i-magnet" viewBox="0 0 24 24"><path d="m6 15-4-4 6.75-6.77a7.79 7.79 0 0 1 11 11L13 22l-4-4 6.39-6.36a2.14 2.14 0 0 0-3-3L6 15"/><path d="m5 8 4 4"/><path d="m12 15 4 4"/></symbol>
+  <symbol id="i-copy" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></symbol>
+  <symbol id="i-clip" viewBox="0 0 24 24"><rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="M9 12h6"/><path d="M9 16h6"/></symbol>
+  <symbol id="i-ext" viewBox="0 0 24 24"><path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></symbol>
+  <symbol id="i-key" viewBox="0 0 24 24"><circle cx="7.5" cy="15.5" r="5.5"/><path d="m21 2-9.6 9.6"/><path d="m15.5 7.5 3 3L22 7l-3-3"/></symbol>
+  <symbol id="i-video" viewBox="0 0 24 24"><path d="m10 8 6 4-6 4Z"/><rect x="2" y="4" width="20" height="16" rx="3"/></symbol>
+  <symbol id="i-image" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-5-5L5 21"/></symbol>
+  <symbol id="i-layers" viewBox="0 0 24 24"><path d="M12 2 2 7l10 5 10-5-10-5z"/><path d="m2 17 10 5 10-5"/><path d="m2 12 10 5 10-5"/></symbol>
+  <symbol id="i-grip" viewBox="0 0 24 24"><circle cx="9" cy="5" r="1"/><circle cx="9" cy="12" r="1"/><circle cx="9" cy="19" r="1"/><circle cx="15" cy="5" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="15" cy="19" r="1"/></symbol>
+  <symbol id="i-pct" viewBox="0 0 24 24"><path d="M19 5 5 19"/><circle cx="6.5" cy="6.5" r="2.5"/><circle cx="17.5" cy="17.5" r="2.5"/></symbol>
+</svg>
 <header>
   <div class="hrow">
-    <h1>🔥 Viral Posts Dashboard<small id="updated"></small></h1>
-    <input id="fSearch" placeholder="🔍 搜文案 / hashtag / 账号">
+    <div class="brand">
+      <div class="mark"><svg class="ic"><use href="#i-flame"/></svg></div>
+      <h1>Viral Posts<small id="updated"></small></h1>
+    </div>
+    <div class="search"><svg class="ic"><use href="#i-search"/></svg>
+      <input id="fSearch" placeholder="搜文案 / hashtag / 账号"></div>
     <select id="fTracker"><option value="">全部 Tracker</option></select>
     <select id="fComp"><option value="">全部 Competitor</option></select>
     <select id="fSort">
@@ -196,8 +327,8 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       <option value="likes">按 Likes</option>
       <option value="date">按 最新日期</option>
     </select>
-    <button class="btn" id="fVideo">🎬 只看视频</button>
-    <button class="btn" id="keyBtn" title="输入团队密钥后才能更新状态">🔑</button>
+    <button class="btn" id="fVideo"><svg class="ic"><use href="#i-video"/></svg>只看视频</button>
+    <button class="btn" id="keyBtn" title="输入团队密钥后才能更新状态"><svg class="ic"><use href="#i-key"/></svg></button>
   </div>
   <div class="tabs" id="tabs"></div>
   <div class="chips" id="presets"></div>
@@ -205,7 +336,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 </header>
 <main>
   <div class="grid" id="grid"></div>
-  <div class="empty" id="empty" style="display:none">没有符合条件的帖子</div>
+  <div class="empty" id="empty" style="display:none"><svg class="ic"><use href="#i-search"/></svg>没有符合条件的帖子</div>
   <div class="more" id="moreWrap" style="display:none"><button id="moreBtn">载入更多</button></div>
 </main>
 <footer>数据来源 Airtable · 每周一自动更新 · 状态更改即时同步全团队 · 视频由 Instagram 官方 embed 播放</footer>
@@ -225,25 +356,26 @@ let curTab = '全部';
 const $ = id => document.getElementById(id);
 const fmt = n => n >= 1e6 ? (n/1e6).toFixed(1)+'M' : n >= 1e3 ? (n/1e3).toFixed(1)+'K' : String(n);
 const getKey = () => localStorage.getItem('team_key') || '';
+const I = n => '<svg class="ic"><use href="#i-' + n + '"/></svg>';
+const esc = s => String(s).replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
 const byRec = {}; DATA.forEach(d => byRec[d.rec] = d);
 const TRENDS = __TRENDS__;
-const esc = s => String(s).replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
 DATA.forEach(d => {
   d.days = d.date ? Math.max(0, Math.floor((Date.now() - new Date(d.date + 'T00:00:00')) / 864e5)) : null;
   d.horse = d.followers > 0 && d.followers < 50000 && ((d.x || 0) >= 2 || d.score >= 10);
 });
 const PRESETS = [
-  { k: 'px', label: '🚀 真爆款 ×2+', f: d => (d.x || 0) >= 2 },
-  { k: 'pn', label: '🆕 近7天', f: d => d.days !== null && d.days <= 7 },
-  { k: 'ph', label: '🐴 黑马', f: d => d.horse },
-  { k: 'pb', label: '💬 引流帖', f: d => d.bait },
+  { k: 'px', icon: 'trend', label: '真爆款 ×2+', f: d => (d.x || 0) >= 2 },
+  { k: 'pn', icon: 'star', label: '近7天', f: d => d.days !== null && d.days <= 7 },
+  { k: 'ph', icon: 'zap', label: '黑马', f: d => d.horse },
+  { k: 'pb', icon: 'magnet', label: '引流帖', f: d => d.bait },
 ];
 const presetOn = {};
 
 function toast(msg, ok) {
-  const t = $('toast'); t.textContent = msg; t.style.display = 'block';
+  const t = $('toast'); t.textContent = msg; t.classList.add('show');
   t.style.borderColor = ok ? 'var(--green)' : 'var(--red)';
-  clearTimeout(t._h); t._h = setTimeout(() => t.style.display = 'none', 2600);
+  clearTimeout(t._h); t._h = setTimeout(() => t.classList.remove('show'), 2600);
 }
 
 // filters
@@ -271,6 +403,8 @@ function filtered() {
   return arr;
 }
 
+let dragRec = null;
+
 function renderTabs() {
   const pool = basePool();
   const counts = { '全部': pool.length };
@@ -279,7 +413,7 @@ function renderTabs() {
   ['全部', ...STATUSES].forEach(name => {
     const el = document.createElement('div');
     el.className = 'tab' + (curTab === name ? ' on' : '') + (name !== '全部' ? ' droppable' : '');
-    el.innerHTML = `${name} <b>${counts[name]}</b>`;
+    el.innerHTML = esc(name) + ' <span class="cnt">' + counts[name] + '</span>';
     el.onclick = () => { curTab = name; shown = PAGE; render(); };
     if (name !== '全部') {
       el.ondragover = e => { if (dragRec) { e.preventDefault(); el.classList.add('over'); } };
@@ -309,8 +443,6 @@ const io = new IntersectionObserver(entries => {
   });
 }, { rootMargin: '400px' });
 
-let dragRec = null;
-
 async function setStatus(d, val) {
   let key = getKey();
   if (!key) { promptKey(); key = getKey(); if (!key) { render(); return; } }
@@ -329,8 +461,10 @@ async function setStatus(d, val) {
   render();
 }
 
-function card(d) {
-  const el = document.createElement('div'); el.className = 'card';
+function card(d, idx) {
+  const el = document.createElement('div');
+  el.className = 'card' + ((d.x || 0) >= 2 ? ' outlier' : '');
+  el.style.animationDelay = Math.min(idx % PAGE, 14) * 30 + 'ms';
   el.draggable = true;
   el.ondragstart = e => {
     dragRec = d.rec;
@@ -343,36 +477,36 @@ function card(d) {
     document.body.classList.remove('dragging');
     dragRec = null;
   };
-  const emoji = d.video ? '🎬' : (d.type === 'Carousel' ? '🖼️' : '📷');
+  const typeIcon = d.video ? 'video' : (d.type === 'Carousel' ? 'layers' : 'image');
   const days = d.days, horse = d.horse;
   const ago = days === null ? '' : (days === 0 ? '今天' : days + '天前');
   const lines = (d.caption || '').split('\\n').map(l => l.trim()).filter(Boolean);
   const hook = lines[0] || '';
   el.innerHTML = `
-    <div class="embed" data-pid="${d.id}"><div class="ph">${emoji} 载入中…</div></div>
+    <div class="embed" data-pid="${d.id}"><div class="ph"><svg class="ic"><use href="#i-${typeIcon}"/></svg></div></div>
     <div class="meta">
       <div class="row1">
-        <span class="handle" title="拖到上方 tab 即可归类">⠿</span>
+        <span class="handle" title="拖到上方 tab 即可归类">${I('grip')}</span>
         <a class="who" href="https://www.instagram.com/${d.competitor}/" target="_blank">@${d.competitor}</a>
         <span class="badge">${d.type || '-'}</span>
-        ${days !== null && days <= 7 ? '<span class="badge bnew">🆕 新帖</span>' : ''}
-        ${horse ? '<span class="badge bhorse">🐴 黑马</span>' : ''}
-        ${d.bait ? '<span class="badge bbait" title="「留言XX」引流打法 — 评论被引流放大,漏斗设计值得学">💬 引流</span>' : ''}
+        ${days !== null && days <= 7 ? '<span class="badge bnew">' + I('star') + '新帖</span>' : ''}
+        ${horse ? '<span class="badge bhorse">' + I('zap') + '黑马</span>' : ''}
+        ${d.bait ? '<span class="badge bbait" title="「留言XX」引流打法 — 评论被引流放大,漏斗设计值得学">' + I('magnet') + '引流</span>' : ''}
         <span class="date" title="${d.date || ''}">${ago}</span>
       </div>
       <div class="nums">
-        <span class="num hot">🔥 <b>${d.score}</b></span>
-        ${(d.x || 0) >= 2 ? '<span class="num x">🚀 <b>×' + d.x + ' 平均</b></span>' : ''}
-        <span class="num er">ER <b>${d.er}%</b></span>
-        <span class="num">❤️ <b>${d.likes > 0 ? fmt(d.likes) : '隐藏'}</b></span>
-        <span class="num">💬 <b>${fmt(d.comments)}</b></span>
-        <span class="num">👥 <b>${fmt(d.followers)}</b></span>
+        <span class="num hot" title="Viral Score">${I('flame')}<b>${d.score}</b></span>
+        ${(d.x || 0) >= 2 ? '<span class="num x" title="是自家平均热度的多少倍">' + I('trend') + '<b>×' + d.x + '</b></span>' : ''}
+        <span class="num er" title="Engagement Rate">${I('pct')}<b>${d.er}%</b></span>
+        <span class="num" title="Likes">${I('heart')}<b>${d.likes > 0 ? fmt(d.likes) : '隐藏'}</b></span>
+        <span class="num" title="Comments">${I('msg')}<b>${fmt(d.comments)}</b></span>
+        <span class="num" title="Followers">${I('users')}<b>${fmt(d.followers)}</b></span>
       </div>
       <div class="cap" onclick="this.classList.toggle('open')"></div>
       <div class="srow"><label>状态</label><select class="status btn s${d.status}"></select>
-        <button class="abtn copy" title="复制完整文案">📋</button>
-        <button class="abtn brief" title="复制拍摄 Brief(数据+Hook+文案)">📝 Brief</button>
-        <a class="abtn" href="${d.url}" target="_blank" title="打开 Instagram 原帖">↗</a></div>
+        <button class="abtn copy" title="复制完整文案">${I('copy')}文案</button>
+        <button class="abtn brief" title="复制拍摄 Brief(数据+Hook+文案)">${I('clip')}Brief</button>
+        <a class="abtn" href="${d.url}" target="_blank" title="打开 Instagram 原帖">${I('ext')}</a></div>
     </div>`;
   const capEl = el.querySelector('.cap');
   const restTxt = lines.slice(1).join('\\n');
@@ -384,10 +518,11 @@ function card(d) {
   el.querySelector('.copy').onclick = () =>
     navigator.clipboard.writeText(d.caption || '').then(() => toast('✓ 文案已复制', true));
   el.querySelector('.brief').onclick = () => {
-    const brief = '🎬 爆款参考 @' + d.competitor + ((d.x || 0) >= 2 ? '(自家平均 ×' + d.x + ')' : '') +
-      '\\n📊 🔥' + d.score + ' | ER ' + d.er + '% | ❤️ ' + (d.likes > 0 ? fmt(d.likes) : '隐藏') +
-      ' | 💬 ' + fmt(d.comments) + ' | 👥 ' + fmt(d.followers) + (ago ? ' | ' + ago : '') +
-      '\\n🔗 ' + d.url + '\\n✍️ Hook: ' + hook + '\\n——— 完整文案 ———\\n' + (d.caption || '');
+    const NL = String.fromCharCode(10);
+    const brief = ['🎬 爆款参考 @' + d.competitor + ((d.x || 0) >= 2 ? '(自家平均 ×' + d.x + ')' : ''),
+      '📊 🔥' + d.score + ' | ER ' + d.er + '% | ❤️ ' + (d.likes > 0 ? fmt(d.likes) : '隐藏') +
+      ' | 💬 ' + fmt(d.comments) + ' | 👥 ' + fmt(d.followers) + (ago ? ' | ' + ago : ''),
+      '🔗 ' + d.url, '✍️ Hook: ' + hook, '——— 完整文案 ———', d.caption || ''].join(NL);
     navigator.clipboard.writeText(brief).then(() => toast('✓ Brief 已复制,可直接发给拍摄/剪辑', true));
   };
   io.observe(el.querySelector('.embed'));
@@ -398,7 +533,7 @@ function render() {
   renderTabs();
   const arr = filtered();
   const grid = $('grid'); grid.innerHTML = '';
-  arr.slice(0, shown).forEach(d => grid.appendChild(card(d)));
+  arr.slice(0, shown).forEach((d, i) => grid.appendChild(card(d, i)));
   $('empty').style.display = arr.length ? 'none' : '';
   $('moreWrap').style.display = arr.length > shown ? '' : 'none';
 }
@@ -443,18 +578,20 @@ $('fVideo').onclick = () => { videoOnly = !videoOnly; $('fVideo').classList.togg
 $('moreBtn').onclick = () => { shown += PAGE; render(); };
 
 // preset quick filters
-$('presets').innerHTML = '<span class="lbl">快筛:</span>';
+$('presets').innerHTML = '<span class="lbl">快筛</span>';
 PRESETS.forEach(p => {
-  const c = document.createElement('span'); c.className = 'chip2'; c.textContent = p.label;
+  const c = document.createElement('span'); c.className = 'chip2';
+  c.innerHTML = I(p.icon) + esc(p.label);
   c.onclick = () => { presetOn[p.k] = !presetOn[p.k]; c.classList.toggle('on', presetOn[p.k]); shown = PAGE; render(); };
   $('presets').appendChild(c);
 });
 
 // trending hashtags among outlier posts
 if (TRENDS.length) {
-  $('trends').innerHTML = '<span class="lbl">🔥 爆款热词:</span>';
+  $('trends').innerHTML = '<span class="lbl">爆款热词</span>';
   TRENDS.forEach(([tag, n]) => {
-    const c = document.createElement('span'); c.className = 'chip2'; c.textContent = '#' + tag + ' ' + n;
+    const c = document.createElement('span'); c.className = 'chip2';
+    c.textContent = '#' + tag + ' ' + n;
     c.onclick = () => { $('fSearch').value = $('fSearch').value === tag ? '' : tag; shown = PAGE; render(); };
     $('trends').appendChild(c);
   });
