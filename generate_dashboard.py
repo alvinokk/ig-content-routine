@@ -76,6 +76,7 @@ def normalize(rec, table):
         "tracker": table["label"],
         "competitor": f.get("Competitor") or "",
         "caption": caption,
+        "transcript": (f.get("Transcript") or "")[:2000],
         "tags": f.get("Hashtags") or "",
         "bait": bool(BAIT_RE.search(caption)),
         "type": f.get("Post Type") or "",
@@ -308,6 +309,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
   <symbol id="i-layers" viewBox="0 0 24 24"><path d="M12 2 2 7l10 5 10-5-10-5z"/><path d="m2 17 10 5 10-5"/><path d="m2 12 10 5 10-5"/></symbol>
   <symbol id="i-grip" viewBox="0 0 24 24"><circle cx="9" cy="5" r="1"/><circle cx="9" cy="12" r="1"/><circle cx="9" cy="19" r="1"/><circle cx="15" cy="5" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="15" cy="19" r="1"/></symbol>
   <symbol id="i-pct" viewBox="0 0 24 24"><path d="M19 5 5 19"/><circle cx="6.5" cy="6.5" r="2.5"/><circle cx="17.5" cy="17.5" r="2.5"/></symbol>
+  <symbol id="i-mic" viewBox="0 0 24 24"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><path d="M12 19v3"/></symbol>
 </svg>
 <header>
   <div class="hrow">
@@ -483,6 +485,7 @@ function card(d, idx) {
   const ago = days === null ? '' : (days === 0 ? '今天' : days + '天前');
   const lines = (d.caption || '').split('\\n').map(l => l.trim()).filter(Boolean);
   const hook = lines[0] || '';
+  const tr = (d.transcript && d.transcript !== '(转录失败)' && d.transcript !== '(无口播内容)') ? d.transcript : '';
   el.innerHTML = `
     <div class="embed" data-pid="${d.id}"><div class="ph"><svg class="ic"><use href="#i-${typeIcon}"/></svg></div></div>
     <div class="meta">
@@ -506,7 +509,8 @@ function card(d, idx) {
       <div class="cap" onclick="this.classList.toggle('open')"></div>
       <div class="srow"><label>状态</label><select class="status btn s${d.status}"></select>
         <button class="abtn copy" title="复制完整文案">${I('copy')}文案</button>
-        <button class="abtn brief" title="复制拍摄 Brief(数据+Hook+文案)">${I('clip')}Brief</button>
+        ${tr ? '<button class="abtn mic" title="复制视频口播逐字稿">' + I('mic') + '口播</button>' : ''}
+        <button class="abtn brief" title="复制拍摄 Brief(数据+Hook+文案+口播稿)">${I('clip')}Brief</button>
         <a class="abtn" href="${d.url}" target="_blank" title="打开 Instagram 原帖">${I('ext')}</a></div>
     </div>`;
   const capEl = el.querySelector('.cap');
@@ -518,13 +522,18 @@ function card(d, idx) {
   sel.onchange = () => setStatus(d, sel.value);
   el.querySelector('.copy').onclick = () =>
     navigator.clipboard.writeText(d.caption || '').then(() => toast('✓ 文案已复制', true));
+  const micBtn = el.querySelector('.mic');
+  if (micBtn) micBtn.onclick = () =>
+    navigator.clipboard.writeText(tr).then(() => toast('✓ 口播稿已复制', true));
   el.querySelector('.brief').onclick = () => {
     const NL = String.fromCharCode(10);
-    const brief = ['🎬 爆款参考 @' + d.competitor + ((d.x || 0) >= 2 ? '(自家平均 ×' + d.x + ')' : ''),
+    const parts = ['🎬 爆款参考 @' + d.competitor + ((d.x || 0) >= 2 ? '(自家平均 ×' + d.x + ')' : ''),
       '📊 🔥' + d.score + ' | ER ' + d.er + '% | ❤️ ' + (d.likes > 0 ? fmt(d.likes) : '隐藏') +
       ' | 💬 ' + fmt(d.comments) + ' | 👥 ' + fmt(d.followers) + (ago ? ' | ' + ago : ''),
-      '🔗 ' + d.url, '✍️ Hook: ' + hook, '——— 完整文案 ———', d.caption || ''].join(NL);
-    navigator.clipboard.writeText(brief).then(() => toast('✓ Brief 已复制,可直接发给拍摄/剪辑', true));
+      '🔗 ' + d.url, '✍️ Hook: ' + hook];
+    if (tr) parts.push('——— 口播稿 ———', tr);
+    parts.push('——— 完整文案 ———', d.caption || '');
+    navigator.clipboard.writeText(parts.join(NL)).then(() => toast('✓ Brief 已复制,可直接发给拍摄/剪辑', true));
   };
   io.observe(el.querySelector('.embed'));
   return el;

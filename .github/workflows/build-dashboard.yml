@@ -1,9 +1,9 @@
 name: Build Dashboard
 
 on:
-  # rebuild as soon as either tracker finishes (the later one bakes full data)
+  # rebuild after transcription finishes (sync -> transcribe -> build)
   workflow_run:
-    workflows: ["IG Content Tracker", "AI Content Tracker"]
+    workflows: ["Transcribe Videos"]
     types: [completed]
   schedule:
     # Monday 08:00 UTC (16:00 SGT) — late fallback in case triggers missed

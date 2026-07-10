@@ -1,0 +1,47 @@
+name: Transcribe Videos
+
+on:
+  # run after each weekly sync while video URLs are still fresh
+  workflow_run:
+    workflows: ["IG Content Tracker", "AI Content Tracker"]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      max_age_days:
+        description: "Only posts synced within N days"
+        default: "14"
+      video_limit:
+        description: "Max videos this run"
+        default: "25"
+
+jobs:
+  transcribe:
+    runs-on: ubuntu-latest
+    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Cache Whisper model
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/whisper
+          key: whisper-small
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get install -y ffmpeg
+          pip install openai-whisper
+
+      - name: Transcribe new videos
+        env:
+          AIRTABLE_PAT: ${{ secrets.AIRTABLE_PAT }}
+          MAX_AGE_DAYS: ${{ inputs.max_age_days || '14' }}
+          VIDEO_LIMIT: ${{ inputs.video_limit || '25' }}
+        run: python transcribe_videos.py
