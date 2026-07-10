@@ -27,6 +27,7 @@ TABLES = [
     {"id": "tbl9jmrGp0DK1vJtt", "label": "AI Competitors"},
 ]
 STATUSES = ["未处理", "拍摄中", "已处理", "跳过"]
+LOG_TABLE = "tblritu7othqwUlpk"  # Activity Log — auto work journal
 
 # comment-bait CTA patterns — require an explicit gated keyword:
 # 留言「X」 / comment "X" / comment WORD below / comment the word X / drop a comment / type "X"
@@ -329,6 +330,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     </select>
     <button class="btn" id="fVideo"><svg class="ic"><use href="#i-video"/></svg>只看视频</button>
     <button class="btn" id="keyBtn" title="输入团队密钥后才能更新状态"><svg class="ic"><use href="#i-key"/></svg></button>
+    <a class="btn" href="team.html" target="_top" title="员工工作台"><svg class="ic"><use href="#i-users"/></svg>工作台</a>
   </div>
   <div class="tabs" id="tabs"></div>
   <div class="chips" id="presets"></div>
@@ -443,9 +445,28 @@ const io = new IntersectionObserver(entries => {
   });
 }, { rootMargin: '400px' });
 
+const LOGTBL = '__LOGTBL__';
+
+function logActivity(key, d, from, to) {
+  // fire-and-forget work journal entry
+  fetch(`https://api.airtable.com/v0/${BASE}/${LOGTBL}`, {
+    method: 'POST',
+    headers: { 'Authorization': 'Bearer ' + key, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ fields: {
+      'Time': new Date().toISOString(),
+      'Who': localStorage.getItem('tm_name') || '未填名字',
+      'Role': localStorage.getItem('tm_role') || '',
+      'Action': '状态变更',
+      'Post ID': d.id, 'Competitor': d.competitor,
+      'From': from, 'To': to, 'Tracker': d.tracker,
+    }, typecast: true })
+  }).catch(() => {});
+}
+
 async function setStatus(d, val) {
   let key = getKey();
   if (!key) { promptKey(); key = getKey(); if (!key) { render(); return; } }
+  const prev = d.status;
   try {
     const r = await fetch(`https://api.airtable.com/v0/${BASE}/${d.tbl}/${d.rec}`, {
       method: 'PATCH',
@@ -454,6 +475,7 @@ async function setStatus(d, val) {
     });
     if (!r.ok) throw new Error('HTTP ' + r.status);
     d.status = val;
+    logActivity(key, d, prev, val);
     toast('✓ @' + d.competitor + ' 已移到「' + val + '」', true);
   } catch (e) {
     toast('更新失败: ' + e.message + (String(e.message).includes('401') || String(e.message).includes('403') ? ' — 密钥无效?' : ''), false);
@@ -605,6 +627,435 @@ refreshStatuses();
 """
 
 
+TEAM_TEMPLATE = """<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>员工工作台</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg:#0a0d13; --card:#11151d; --card-hi:#151a24; --border:#1d2430; --border-hi:#2c3546;
+    --text:#e8ecf3; --muted:#8a94a6; --faint:#5b6577; --accent:#5ea1ff; --green:#3fd68f;
+    --orange:#f0a33f; --pink:#ff6b9d; --red:#ff5c5c; --fire1:#ff8a3d; --fire2:#ff4d6d;
+    --font:'Inter',-apple-system,'Segoe UI','PingFang SC','Microsoft YaHei',sans-serif;
+    --disp:'Space Grotesk','Inter','PingFang SC','Microsoft YaHei',sans-serif;
+  }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body { background:var(--bg); color:var(--text); font-family:var(--font); -webkit-font-smoothing:antialiased; }
+  ::selection { background:rgba(94,161,255,.3); }
+  ::-webkit-scrollbar { width:10px; } ::-webkit-scrollbar-thumb { background:#232c3b; border-radius:8px; }
+  :focus-visible { outline:2px solid var(--accent); outline-offset:2px; border-radius:6px; }
+  .ic { width:14px; height:14px; stroke:currentColor; stroke-width:2; stroke-linecap:round; stroke-linejoin:round; fill:none; flex:none; }
+
+  header { position:sticky; top:0; z-index:50; background:rgba(10,13,19,.86);
+    backdrop-filter:blur(14px); border-bottom:1px solid var(--border); padding:13px 20px; }
+  .hrow { display:flex; flex-wrap:wrap; gap:10px; align-items:center; max-width:1200px; margin:0 auto; }
+  .brand { display:flex; align-items:center; gap:10px; margin-right:auto; }
+  .mark { width:31px; height:31px; border-radius:9px; display:grid; place-items:center;
+    background:linear-gradient(135deg,var(--fire1),var(--fire2)); box-shadow:0 4px 16px rgba(255,92,80,.35); }
+  .mark .ic { width:17px; height:17px; color:#fff; }
+  h1 { font-family:var(--disp); font-size:16.5px; font-weight:700; line-height:1.15; }
+  h1 small { display:block; color:var(--faint); font-family:var(--font); font-weight:400; font-size:10.5px; }
+  .me { display:flex; align-items:center; gap:8px; font-size:13px; color:var(--muted); cursor:pointer;
+    background:var(--card); border:1px solid var(--border); border-radius:10px; padding:7px 12px;
+    transition:border-color .18s; }
+  .me:hover { border-color:var(--border-hi); }
+  .me b { color:var(--text); }
+
+  nav { display:flex; gap:7px; max-width:1200px; margin:12px auto 0; flex-wrap:wrap; }
+  .ntab { display:inline-flex; align-items:center; gap:7px; background:var(--card);
+    border:1px solid var(--border); border-radius:999px; padding:7px 16px; font-size:13.5px;
+    color:var(--muted); cursor:pointer; user-select:none; transition:all .18s; }
+  .ntab:hover { border-color:var(--border-hi); color:var(--text); }
+  .ntab.on { color:var(--text); background:linear-gradient(135deg,rgba(255,138,61,.15),rgba(255,77,109,.15));
+    border-color:rgba(255,120,90,.45); }
+
+  main { max-width:1200px; margin:22px auto; padding:0 20px; }
+  .page { display:none; } .page.on { display:block; }
+
+  .stats { display:flex; gap:10px; flex-wrap:wrap; margin-bottom:18px; }
+  .stat { flex:1; min-width:130px; background:var(--card); border:1px solid var(--border);
+    border-radius:14px; padding:14px 16px; }
+  .stat .v { font-family:var(--disp); font-size:26px; font-weight:700; font-variant-numeric:tabular-nums; }
+  .stat .l { color:var(--faint); font-size:12px; margin-top:2px; }
+  .stat.sh .v { color:var(--orange); } .stat.dn .v { color:var(--green); } .stat.pd .v { color:var(--accent); }
+
+  section { background:var(--card); border:1px solid var(--border); border-radius:16px;
+    padding:16px 18px; margin-bottom:16px; }
+  section h2 { font-size:14px; font-weight:600; display:flex; align-items:center; gap:8px; margin-bottom:12px; }
+  section h2 .ic { color:var(--orange); }
+  section h2 small { color:var(--faint); font-weight:400; font-size:11.5px; margin-left:auto; }
+  .row { display:flex; align-items:center; gap:10px; padding:10px 0; border-top:1px solid var(--border);
+    font-size:13px; flex-wrap:wrap; }
+  .row .hookline { flex:1; min-width:200px; color:var(--text); overflow:hidden; text-overflow:ellipsis;
+    white-space:nowrap; }
+  .row .hookline small { color:var(--faint); display:block; font-size:11px; margin-top:1px; }
+  .row .who2 { color:var(--accent); text-decoration:none; font-weight:600; font-size:12px; white-space:nowrap; }
+  .xb { font-family:var(--disp); font-weight:600; font-size:11px; color:var(--orange);
+    border:1px solid rgba(240,163,63,.4); background:rgba(240,163,63,.07); border-radius:99px;
+    padding:2px 8px; white-space:nowrap; }
+  .pill { display:inline-flex; align-items:center; gap:4px; background:#0c0f16; color:var(--muted);
+    border:1px solid var(--border); border-radius:9px; padding:5.5px 10px; font-size:11.5px;
+    cursor:pointer; text-decoration:none; font-family:var(--font); transition:all .18s; white-space:nowrap; }
+  .pill .ic { width:11px; height:11px; }
+  .pill:hover { color:var(--accent); border-color:rgba(94,161,255,.5); }
+  .pill.ok:hover { color:var(--green); border-color:rgba(63,214,143,.5); }
+  .pill.bad:hover { color:var(--red); border-color:rgba(255,92,92,.5); }
+  .none { color:var(--faint); font-size:13px; padding:14px 0 6px; }
+
+  .act { display:flex; gap:9px; padding:7px 0; border-top:1px solid var(--border);
+    font-size:12.5px; color:var(--muted); }
+  .act time { color:var(--faint); font-variant-numeric:tabular-nums; white-space:nowrap; }
+  .act b { color:var(--text); font-weight:600; }
+  .act .to { color:var(--orange); }
+
+  #radarWrap { height:calc(100vh - 150px); min-height:500px; border:1px solid var(--border);
+    border-radius:16px; overflow:hidden; }
+  #radarWrap iframe { width:100%; height:100%; border:0; }
+
+  .sop { max-width:820px; }
+  .sop h3 { font-size:15px; margin:22px 0 10px; display:flex; gap:8px; align-items:center; }
+  .sop h3 .ic { color:var(--orange); }
+  .sop ol { margin:0 0 8px 22px; color:var(--muted); font-size:13.5px; line-height:1.9; }
+  .sop ol b { color:var(--text); }
+  .sop p { color:var(--muted); font-size:13px; line-height:1.7; margin-bottom:6px; }
+  .sop table { border-collapse:collapse; font-size:13px; margin:8px 0; }
+  .sop td, .sop th { border:1px solid var(--border); padding:7px 14px; color:var(--muted); }
+  .sop th { color:var(--text); background:var(--card-hi); }
+
+  #overlay { position:fixed; inset:0; background:rgba(6,8,12,.88); backdrop-filter:blur(6px);
+    z-index:200; display:none; place-items:center; }
+  #overlay.show { display:grid; }
+  .obox { background:var(--card); border:1px solid var(--border-hi); border-radius:18px;
+    padding:28px 30px; width:min(92vw,380px); }
+  .obox h2 { font-family:var(--disp); font-size:18px; margin-bottom:6px; }
+  .obox p { color:var(--muted); font-size:13px; margin-bottom:16px; }
+  .obox input, .obox select { width:100%; background:#0c0f16; color:var(--text);
+    border:1px solid var(--border); border-radius:10px; padding:10px 13px; font-size:14px;
+    font-family:var(--font); margin-bottom:11px; }
+  .obox input:focus, .obox select:focus { border-color:var(--accent); outline:none; }
+  .obox button { width:100%; background:linear-gradient(135deg,var(--fire1),var(--fire2));
+    color:#fff; border:0; border-radius:10px; padding:11px; font-size:14px; font-weight:600;
+    font-family:var(--font); cursor:pointer; }
+  .obox button:active { transform:scale(.98); }
+
+  #toast { position:fixed; bottom:26px; left:50%; transform:translateX(-50%) translateY(8px);
+    background:var(--card-hi); border:1px solid var(--border-hi); border-radius:11px;
+    padding:11px 20px; font-size:13px; display:none; z-index:300; opacity:0;
+    box-shadow:0 12px 32px rgba(0,0,0,.5); transition:opacity .2s, transform .2s; }
+  #toast.show { display:block; opacity:1; transform:translateX(-50%) translateY(0); }
+  @media (prefers-reduced-motion: reduce) { * { animation:none!important; transition:none!important; } }
+</style>
+</head>
+<body>
+<svg style="display:none" xmlns="http://www.w3.org/2000/svg">
+  <symbol id="i-flame" viewBox="0 0 24 24"><path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z"/></symbol>
+  <symbol id="i-user" viewBox="0 0 24 24"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></symbol>
+  <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></symbol>
+  <symbol id="i-ext" viewBox="0 0 24 24"><path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></symbol>
+  <symbol id="i-video" viewBox="0 0 24 24"><path d="m10 8 6 4-6 4Z"/><rect x="2" y="4" width="20" height="16" rx="3"/></symbol>
+  <symbol id="i-book" viewBox="0 0 24 24"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></symbol>
+  <symbol id="i-radar" viewBox="0 0 24 24"><path d="M19.07 4.93A10 10 0 0 0 6.99 3.34"/><path d="M4 6h.01"/><path d="M2.29 9.62A10 10 0 1 0 21.31 8.35"/><path d="M16.24 7.76A6 6 0 1 0 8.23 16.67"/><path d="M12 18h.01"/><path d="M17.99 11.66A6 6 0 0 1 15.77 16.67"/><circle cx="12" cy="12" r="2"/><path d="m13.41 10.59 5.66-5.66"/></symbol>
+  <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></symbol>
+</svg>
+<header>
+  <div class="hrow">
+    <div class="brand">
+      <div class="mark"><svg class="ic"><use href="#i-flame"/></svg></div>
+      <h1>员工工作台<small id="updated"></small></h1>
+    </div>
+    <div class="me" id="meBtn" title="点击修改身份">
+      <svg class="ic"><use href="#i-user"/></svg><span id="meLabel">未登记</span>
+    </div>
+  </div>
+  <nav>
+    <div class="ntab on" data-p="work"><svg class="ic"><use href="#i-clock"/></svg>今日工作</div>
+    <div class="ntab" data-p="radar"><svg class="ic"><use href="#i-radar"/></svg>爆款雷达</div>
+    <div class="ntab" data-p="sop"><svg class="ic"><use href="#i-book"/></svg>SOP</div>
+  </nav>
+</header>
+<main>
+  <div class="page on" id="p-work">
+    <div class="stats">
+      <div class="stat pd"><div class="v" id="stPending">–</div><div class="l">未处理(待挑选)</div></div>
+      <div class="stat sh"><div class="v" id="stShoot">–</div><div class="l">拍摄中</div></div>
+      <div class="stat dn"><div class="v" id="stDone">–</div><div class="l">已处理</div></div>
+    </div>
+    <section>
+      <h2><svg class="ic"><use href="#i-video"/></svg>拍摄中队列<small>做完一条,点「完成」</small></h2>
+      <div id="shootList"></div>
+    </section>
+    <section>
+      <h2><svg class="ic"><use href="#i-flame"/></svg>本周待挑选爆款 Top 8<small>看中就点「选中拍摄」,细看去爆款雷达</small></h2>
+      <div id="pickList"></div>
+    </section>
+    <section>
+      <h2><svg class="ic"><use href="#i-clock"/></svg>最近动态<small>自动记录,无需写日报</small></h2>
+      <div id="actList"><div class="none">输入团队密钥后显示(点右上角身份 → 会提示)</div></div>
+    </section>
+  </div>
+  <div class="page" id="p-radar"><div id="radarWrap"></div></div>
+  <div class="page sop" id="p-sop">
+    <section>
+      <h3><svg class="ic"><use href="#i-flame"/></svg>SOP-01 · Marketer 每周选题流程(周一,约30分钟)</h3>
+      <ol>
+        <li>打开<b>爆款雷达</b>,点快筛「<b>真爆款 ×2+</b>」+「<b>近7天</b>」</li>
+        <li>看「爆款热词」确认本周主题方向(热词越多的主题越优先)</li>
+        <li>挑 <b>3–5 条</b>适合改编的。标准:话题跟我们相关 / Hook 可复制 / 我们拍得出来</li>
+        <li>每条点「<b>Brief</b>」复制 → 发到拍摄群</li>
+        <li>把选中的卡片<b>拖到「拍摄中」</b></li>
+        <li>明显不适合的拖「跳过」,保持未处理越少越好</li>
+      </ol>
+    </section>
+    <section>
+      <h3><svg class="ic"><use href="#i-video"/></svg>SOP-02 · Content Creator 拍摄改编流程(每条 ≤1天)</h3>
+      <ol>
+        <li>打开工作台「<b>今日工作</b>」,看拍摄中队列,从最旧的开始</li>
+        <li>打开原帖看 <b>3 遍</b>:第1遍看整体 / 第2遍拆 Hook(前3秒为什么让人停下) / 第3遍记结构(几个镜头、什么节奏)</li>
+        <li><b>改编不照抄</b>:换成我们的案例、口吻、行业。保留结构,替换内容</li>
+        <li>拍摄 → 剪辑。<b>前3秒必须有钩子</b>,字幕开头即出</li>
+        <li>发布后回到工作台,该条点「<b>完成</b>」</li>
+      </ol>
+    </section>
+    <section>
+      <h3><svg class="ic"><use href="#i-book"/></svg>SOP-03 · 状态定义(团队统一语言)</h3>
+      <table>
+        <tr><th>状态</th><th>意思</th><th>谁负责改</th></tr>
+        <tr><td>未处理</td><td>还没人筛选过</td><td>Marketer 每周清理</td></tr>
+        <tr><td>拍摄中</td><td>已选中,正在改编/拍摄/剪辑</td><td>Marketer 选中时拖入</td></tr>
+        <tr><td>已处理</td><td>已发布或已完成改编</td><td>Creator 完成时点</td></tr>
+        <tr><td>跳过</td><td>不适合我们,不再考虑</td><td>任何人</td></tr>
+      </table>
+    </section>
+    <section>
+      <h3><svg class="ic"><use href="#i-radar"/></svg>SOP-04 · 看到「引流」标签的帖子怎么学</h3>
+      <p>带「引流」标的帖子,重点<b>不是内容,是漏斗</b>。记录三件事:</p>
+      <ol>
+        <li>留言<b>关键词</b>是什么?(例:留言「Start」)</li>
+        <li>送的<b>诱饵</b>是什么?(模板 / 课程 / 清单)</li>
+        <li>之后导去<b>哪里</b>?(DM 自动回复 → 链接 → 报名页)</li>
+      </ol>
+      <p>好的打法直接抄结构,用我们的 GHL / ManyChat 实现。</p>
+    </section>
+  </div>
+</main>
+<div id="overlay"><div class="obox">
+  <h2>👋 你是谁?</h2>
+  <p>登记一次,之后所有操作自动记录到你名下,不用写日报。</p>
+  <input id="oName" placeholder="你的名字" maxlength="20">
+  <select id="oRole">
+    <option value="Marketer">Marketer(选题/投放)</option>
+    <option value="Content Creator">Content Creator(拍摄/剪辑)</option>
+    <option value="Boss">Boss</option>
+  </select>
+  <button id="oSave">进入工作台</button>
+</div></div>
+<div id="toast"></div>
+<script id="data" type="application/json">__DATA__</script>
+<script>
+const DATA = JSON.parse(document.getElementById('data').textContent);
+const BASE = '__BASE__';
+const LOGTBL = '__LOGTBL__';
+document.getElementById('updated').textContent = '数据更新于 __UPDATED__';
+
+const $ = id => document.getElementById(id);
+const I = n => '<svg class="ic"><use href="#i-' + n + '"/></svg>';
+const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const fmt = n => n >= 1e6 ? (n/1e6).toFixed(1)+'M' : n >= 1e3 ? (n/1e3).toFixed(1)+'K' : String(n);
+const getKey = () => localStorage.getItem('team_key') || '';
+const firstLine = c => ((c || '').split('\\n').map(l => l.trim()).filter(Boolean)[0] || '(无文案)');
+const byRec = {}; DATA.forEach(d => byRec[d.rec] = d);
+
+function toast(msg, ok) {
+  const t = $('toast'); t.textContent = msg; t.classList.add('show');
+  t.style.borderColor = ok ? 'var(--green)' : 'var(--red)';
+  clearTimeout(t._h); t._h = setTimeout(() => t.classList.remove('show'), 2600);
+}
+
+// ---- identity ----
+function meLabel() {
+  const n = localStorage.getItem('tm_name'), r = localStorage.getItem('tm_role');
+  $('meLabel').innerHTML = n ? '<b>' + esc(n) + '</b>&nbsp;· ' + esc(r || '') : '未登记';
+}
+function showOverlay() {
+  $('oName').value = localStorage.getItem('tm_name') || '';
+  $('oRole').value = localStorage.getItem('tm_role') || 'Marketer';
+  $('overlay').classList.add('show');
+}
+$('oSave').onclick = () => {
+  const n = $('oName').value.trim();
+  if (!n) { $('oName').focus(); return; }
+  localStorage.setItem('tm_name', n);
+  localStorage.setItem('tm_role', $('oRole').value);
+  $('overlay').classList.remove('show');
+  meLabel();
+  if (!getKey()) {
+    const k = prompt('输入团队密钥(改状态用,只需一次;没有就问老板要):', '');
+    if (k && k.trim()) { localStorage.setItem('team_key', k.trim()); }
+  }
+  refreshStatuses(); loadActs();
+};
+$('meBtn').onclick = showOverlay;
+meLabel();
+if (!localStorage.getItem('tm_name')) showOverlay();
+
+// ---- tabs ----
+document.querySelectorAll('.ntab').forEach(t => t.onclick = () => {
+  document.querySelectorAll('.ntab').forEach(x => x.classList.toggle('on', x === t));
+  document.querySelectorAll('.page').forEach(p => p.classList.toggle('on', p.id === 'p-' + t.dataset.p));
+  if (t.dataset.p === 'radar' && !$('radarWrap').querySelector('iframe')) {
+    const f = document.createElement('iframe'); f.src = 'index.html'; $('radarWrap').appendChild(f);
+  }
+});
+
+// ---- status write + log ----
+function logActivity(key, d, from, to) {
+  fetch(`https://api.airtable.com/v0/${BASE}/${LOGTBL}`, {
+    method: 'POST',
+    headers: { 'Authorization': 'Bearer ' + key, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ fields: {
+      'Time': new Date().toISOString(),
+      'Who': localStorage.getItem('tm_name') || '未填名字',
+      'Role': localStorage.getItem('tm_role') || '',
+      'Action': '状态变更',
+      'Post ID': d.id, 'Competitor': d.competitor,
+      'From': from, 'To': to, 'Tracker': d.tracker,
+    }, typecast: true })
+  }).catch(() => {});
+}
+
+async function setStatus(d, val) {
+  let key = getKey();
+  if (!key) {
+    const k = prompt('输入团队密钥(只需一次):', '');
+    if (k && k.trim()) { localStorage.setItem('team_key', k.trim()); key = k.trim(); }
+    else return;
+  }
+  const prev = d.status;
+  try {
+    const r = await fetch(`https://api.airtable.com/v0/${BASE}/${d.tbl}/${d.rec}`, {
+      method: 'PATCH',
+      headers: { 'Authorization': 'Bearer ' + key, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fields: { 'Status': val }, typecast: true })
+    });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    d.status = val;
+    logActivity(key, d, prev, val);
+    toast('✓ @' + d.competitor + ' → ' + val, true);
+    setTimeout(loadActs, 800);
+  } catch (e) {
+    toast('失败: ' + e.message, false);
+  }
+  renderWork();
+}
+
+// ---- 今日工作 ----
+function pillBtn(cls, icon, label) {
+  return '<button class="pill ' + cls + '">' + I(icon) + label + '</button>';
+}
+
+function renderWork() {
+  const pend = DATA.filter(d => d.status === '未处理');
+  const shoot = DATA.filter(d => d.status === '拍摄中');
+  const done = DATA.filter(d => d.status === '已处理');
+  $('stPending').textContent = pend.length;
+  $('stShoot').textContent = shoot.length;
+  $('stDone').textContent = done.length;
+
+  // shooting queue
+  const sl = $('shootList'); sl.innerHTML = '';
+  if (!shoot.length) sl.innerHTML = '<div class="none">队列是空的 — Marketer 去爆款雷达挑几条拖进「拍摄中」</div>';
+  shoot.forEach(d => {
+    const r = document.createElement('div'); r.className = 'row';
+    r.innerHTML = '<a class="who2" href="https://www.instagram.com/' + d.competitor + '/" target="_blank">@' + esc(d.competitor) + '</a>'
+      + ((d.x || 0) >= 2 ? '<span class="xb">×' + d.x + '</span>' : '')
+      + '<span class="hookline">' + esc(firstLine(d.caption)) + '</span>'
+      + '<a class="pill" href="' + d.url + '" target="_blank">' + I('ext') + '原帖</a>'
+      + pillBtn('ok', 'check', '完成') + pillBtn('bad', 'x', '退回');
+    const btns = r.querySelectorAll('button');
+    btns[0].onclick = () => setStatus(d, '已处理');
+    btns[1].onclick = () => setStatus(d, '未处理');
+    sl.appendChild(r);
+  });
+
+  // picks
+  const picks = pend.filter(d => (d.x || 0) >= 2).sort((a, b) => (b.x || 0) - (a.x || 0)).slice(0, 8);
+  const pl = $('pickList'); pl.innerHTML = '';
+  if (!picks.length) pl.innerHTML = '<div class="none">暂时没有 ×2 以上的未处理爆款 — 等周一自动抓新数据</div>';
+  picks.forEach(d => {
+    const r = document.createElement('div'); r.className = 'row';
+    r.innerHTML = '<span class="xb">×' + d.x + '</span>'
+      + '<a class="who2" href="https://www.instagram.com/' + d.competitor + '/" target="_blank">@' + esc(d.competitor) + '</a>'
+      + '<span class="hookline">' + esc(firstLine(d.caption))
+      + '<small>🔥' + d.score + ' · ER ' + d.er + '% · 💬' + fmt(d.comments) + '</small></span>'
+      + '<a class="pill" href="' + d.url + '" target="_blank">' + I('ext') + '原帖</a>'
+      + pillBtn('ok', 'video', '选中拍摄') + pillBtn('bad', 'x', '跳过');
+    const btns = r.querySelectorAll('button');
+    btns[0].onclick = () => setStatus(d, '拍摄中');
+    btns[1].onclick = () => setStatus(d, '跳过');
+    pl.appendChild(r);
+  });
+}
+
+// ---- live statuses from Airtable ----
+async function refreshStatuses() {
+  const key = getKey(); if (!key) { renderWork(); return; }
+  try {
+    for (const tbl of [...new Set(DATA.map(d => d.tbl))]) {
+      let offset = '';
+      do {
+        const u = `https://api.airtable.com/v0/${BASE}/${tbl}?pageSize=100&fields%5B%5D=Status` + (offset ? `&offset=${encodeURIComponent(offset)}` : '');
+        const r = await fetch(u, { headers: { 'Authorization': 'Bearer ' + key } });
+        if (!r.ok) break;
+        const j = await r.json();
+        (j.records || []).forEach(rec => {
+          const d = byRec[rec.id];
+          if (d) d.status = (rec.fields && rec.fields['Status']) || '未处理';
+        });
+        offset = j.offset || '';
+      } while (offset);
+    }
+  } catch (e) {}
+  renderWork();
+}
+
+// ---- activity feed ----
+async function loadActs() {
+  const key = getKey(); if (!key) return;
+  try {
+    const u = `https://api.airtable.com/v0/${BASE}/${LOGTBL}?pageSize=15&sort%5B0%5D%5Bfield%5D=Time&sort%5B0%5D%5Bdirection%5D=desc`;
+    const r = await fetch(u, { headers: { 'Authorization': 'Bearer ' + key } });
+    if (!r.ok) return;
+    const j = await r.json();
+    const al = $('actList'); al.innerHTML = '';
+    if (!(j.records || []).length) { al.innerHTML = '<div class="none">还没有记录 — 改一次状态就会出现</div>'; return; }
+    j.records.forEach(rec => {
+      const f = rec.fields || {};
+      const t = f['Time'] ? new Date(f['Time']) : null;
+      const ts = t ? (String(t.getMonth()+1).padStart(2,'0') + '-' + String(t.getDate()).padStart(2,'0') + ' ' + String(t.getHours()).padStart(2,'0') + ':' + String(t.getMinutes()).padStart(2,'0')) : '';
+      const div = document.createElement('div'); div.className = 'act';
+      div.innerHTML = '<time>' + ts + '</time><span><b>' + esc(f['Who'] || '?') + '</b> 把 @' + esc(f['Competitor'] || '') + ' 移到 <span class="to">' + esc(f['To'] || '') + '</span></span>';
+      al.appendChild(div);
+    });
+  } catch (e) {}
+}
+
+renderWork();
+refreshStatuses();
+loadActs();
+</script>
+</body>
+</html>
+"""
+
+
 def main():
     pat = (os.environ.get("AIRTABLE_PAT") or os.environ.get("AIRTABLE_API_KEY") or "").strip()
     if not pat:
@@ -662,12 +1113,26 @@ def main():
         .replace("__TABLE_IDS__", json.dumps([t["id"] for t in TABLES]))
         .replace("__STATUSES__", json.dumps(STATUSES, ensure_ascii=False))
         .replace("__TRENDS__", json.dumps(trends, ensure_ascii=False))
+        .replace("__LOGTBL__", LOG_TABLE)
     )
 
     os.makedirs(os.path.dirname(OUT_PATH), exist_ok=True)
     with open(OUT_PATH, "w", encoding="utf-8") as f:
         f.write(html)
     print(f"\nWrote {OUT_PATH} with {len(unique)} posts.")
+
+    # team portal — slim payload (no captions beyond first 200 chars needed for hooks)
+    team_html = (
+        TEAM_TEMPLATE
+        .replace("__DATA__", payload)
+        .replace("__UPDATED__", updated)
+        .replace("__BASE__", AIRTABLE_BASE)
+        .replace("__LOGTBL__", LOG_TABLE)
+    )
+    team_path = os.path.join(os.path.dirname(OUT_PATH), "team.html")
+    with open(team_path, "w", encoding="utf-8") as f:
+        f.write(team_html)
+    print(f"Wrote {team_path}")
 
 
 if __name__ == "__main__":
