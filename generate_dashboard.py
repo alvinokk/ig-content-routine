@@ -15,6 +15,7 @@ Token: AIRTABLE_PAT (environment variable, build-time read only).
 
 import json
 import os
+import re
 import sys
 import urllib.parse
 import urllib.request
@@ -26,6 +27,18 @@ TABLES = [
     {"id": "tbl9jmrGp0DK1vJtt", "label": "AI Competitors"},
 ]
 STATUSES = ["未处理", "拍摄中", "已处理", "跳过"]
+
+# comment-bait CTA patterns — require an explicit gated keyword:
+# 留言「X」 / comment "X" / comment WORD below / comment the word X / drop a comment / type "X"
+BAIT_RE = re.compile(
+    r"留言"
+    r"|(?i:comment)\s*[\"'“”‘’『「【]"        # comment "X"
+    r"|(?i:comment)\s+[A-Z0-9]{2,}\b"          # comment WORD (all-caps keyword)
+    r"|(?i:comment\s+the\s+word)\b"            # comment the word X
+    r"|(?i:comment\s+\S{1,20}\s+below)\b"      # comment X below
+    r"|(?i:drop\s+a\s+comment)"
+    r"|(?i:type)\s*[\"'“”‘’]?\S{1,20}[\"'“”‘’]?(?i:\s+below)\b",
+)
 
 OUT_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "docs", "index.html")
 
@@ -55,14 +68,16 @@ def normalize(rec, table):
     if not post_id:
         return None
     er = f.get("Engagement Rate") or 0
+    caption = (f.get("Caption") or "")[:1000]
     return {
         "id": post_id,
         "rec": rec.get("id"),
         "tbl": table["id"],
         "tracker": table["label"],
         "competitor": f.get("Competitor") or "",
-        "caption": (f.get("Caption") or "")[:1000],
+        "caption": caption,
         "tags": f.get("Hashtags") or "",
+        "bait": bool(BAIT_RE.search(caption)),
         "type": f.get("Post Type") or "",
         "likes": f.get("Likes") if isinstance(f.get("Likes"), (int, float)) else 0,
         "comments": f.get("Comments") or 0,
@@ -109,6 +124,13 @@ HTML_TEMPLATE = """<!DOCTYPE html>
   .badge.bnew { color: var(--pink); border-color: var(--pink); }
   .badge.bhorse { color: var(--orange); border-color: var(--orange); }
   .num.x b { color: var(--orange); }
+  .chips { display: flex; gap: 6px; flex-wrap: wrap; max-width: 1400px; margin: 8px auto 0; align-items: center; }
+  .chips .lbl { font-size: 12px; color: var(--muted); }
+  .chip2 { background: var(--card); border: 1px solid var(--border); border-radius: 999px;
+    padding: 4px 11px; font-size: 12px; color: var(--muted); cursor: pointer; user-select: none; }
+  .chip2.on { border-color: var(--orange); color: var(--orange); background: rgba(210,153,34,.08); }
+  .badge.bbait { color: var(--accent); border-color: var(--accent); }
+  .cap b { color: var(--text); font-weight: 600; }
   .tabs { display: flex; gap: 6px; flex-wrap: wrap; max-width: 1400px; margin: 10px auto 0; }
   .tab { background: var(--card); border: 1px solid var(--border); border-radius: 999px;
     padding: 6px 14px; font-size: 13px; color: var(--muted); cursor: pointer; user-select: none; }
@@ -167,8 +189,8 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     <select id="fTracker"><option value="">全部 Tracker</option></select>
     <select id="fComp"><option value="">全部 Competitor</option></select>
     <select id="fSort">
-      <option value="score">按 Viral Score</option>
       <option value="x">按 爆款倍数 (vs 自家平均)</option>
+      <option value="score">按 Viral Score</option>
       <option value="er">按 Engagement Rate</option>
       <option value="comments">按 Comments</option>
       <option value="likes">按 Likes</option>
@@ -178,6 +200,8 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     <button class="btn" id="keyBtn" title="输入团队密钥后才能更新状态">🔑</button>
   </div>
   <div class="tabs" id="tabs"></div>
+  <div class="chips" id="presets"></div>
+  <div class="chips" id="trends"></div>
 </header>
 <main>
   <div class="grid" id="grid"></div>
@@ -202,6 +226,19 @@ const $ = id => document.getElementById(id);
 const fmt = n => n >= 1e6 ? (n/1e6).toFixed(1)+'M' : n >= 1e3 ? (n/1e3).toFixed(1)+'K' : String(n);
 const getKey = () => localStorage.getItem('team_key') || '';
 const byRec = {}; DATA.forEach(d => byRec[d.rec] = d);
+const TRENDS = __TRENDS__;
+const esc = s => String(s).replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+DATA.forEach(d => {
+  d.days = d.date ? Math.max(0, Math.floor((Date.now() - new Date(d.date + 'T00:00:00')) / 864e5)) : null;
+  d.horse = d.followers > 0 && d.followers < 50000 && ((d.x || 0) >= 2 || d.score >= 10);
+});
+const PRESETS = [
+  { k: 'px', label: '🚀 真爆款 ×2+', f: d => (d.x || 0) >= 2 },
+  { k: 'pn', label: '🆕 近7天', f: d => d.days !== null && d.days <= 7 },
+  { k: 'ph', label: '🐴 黑马', f: d => d.horse },
+  { k: 'pb', label: '💬 引流帖', f: d => d.bait },
+];
+const presetOn = {};
 
 function toast(msg, ok) {
   const t = $('toast'); t.textContent = msg; t.style.display = 'block';
@@ -219,10 +256,15 @@ function matchQ(d) {
   return !q || (d.caption + ' ' + (d.tags || '') + ' ' + d.competitor).toLowerCase().includes(q);
 }
 
+function basePool() {
+  const t = $('fTracker').value, c = $('fComp').value;
+  return DATA.filter(d => (!t || d.tracker === t) && (!c || d.competitor === c) && (!videoOnly || d.video)
+    && matchQ(d) && PRESETS.every(p => !presetOn[p.k] || p.f(d)));
+}
+
 function filtered() {
-  const t = $('fTracker').value, c = $('fComp').value, s = $('fSort').value;
-  let arr = DATA.filter(d => (!t || d.tracker === t) && (!c || d.competitor === c) && (!videoOnly || d.video)
-    && (curTab === '全部' || d.status === curTab) && matchQ(d));
+  const s = $('fSort').value;
+  let arr = basePool().filter(d => curTab === '全部' || d.status === curTab);
   const key = { score:'score', er:'er', comments:'comments', likes:'likes', x:'x' }[s];
   if (s === 'date') arr.sort((a,b) => (b.date||'').localeCompare(a.date||''));
   else arr.sort((a,b) => (b[key]||0) - (a[key]||0));
@@ -230,8 +272,7 @@ function filtered() {
 }
 
 function renderTabs() {
-  const t = $('fTracker').value, c = $('fComp').value;
-  const pool = DATA.filter(d => (!t || d.tracker === t) && (!c || d.competitor === c) && (!videoOnly || d.video) && matchQ(d));
+  const pool = basePool();
   const counts = { '全部': pool.length };
   STATUSES.forEach(s => counts[s] = pool.filter(d => d.status === s).length);
   $('tabs').innerHTML = '';
@@ -303,9 +344,10 @@ function card(d) {
     dragRec = null;
   };
   const emoji = d.video ? '🎬' : (d.type === 'Carousel' ? '🖼️' : '📷');
-  const days = d.date ? Math.max(0, Math.floor((Date.now() - new Date(d.date + 'T00:00:00')) / 864e5)) : null;
+  const days = d.days, horse = d.horse;
   const ago = days === null ? '' : (days === 0 ? '今天' : days + '天前');
-  const horse = d.followers > 0 && d.followers < 50000 && ((d.x || 0) >= 2 || d.score >= 10);
+  const lines = (d.caption || '').split('\\n').map(l => l.trim()).filter(Boolean);
+  const hook = lines[0] || '';
   el.innerHTML = `
     <div class="embed" data-pid="${d.id}"><div class="ph">${emoji} 载入中…</div></div>
     <div class="meta">
@@ -315,6 +357,7 @@ function card(d) {
         <span class="badge">${d.type || '-'}</span>
         ${days !== null && days <= 7 ? '<span class="badge bnew">🆕 新帖</span>' : ''}
         ${horse ? '<span class="badge bhorse">🐴 黑马</span>' : ''}
+        ${d.bait ? '<span class="badge bbait" title="「留言XX」引流打法 — 评论被引流放大,漏斗设计值得学">💬 引流</span>' : ''}
         <span class="date" title="${d.date || ''}">${ago}</span>
       </div>
       <div class="nums">
@@ -327,16 +370,26 @@ function card(d) {
       </div>
       <div class="cap" onclick="this.classList.toggle('open')"></div>
       <div class="srow"><label>状态</label><select class="status btn s${d.status}"></select>
-        <button class="abtn copy" title="复制完整文案">📋 文案</button>
-        <a class="abtn" href="${d.url}" target="_blank" title="打开 Instagram 原帖">↗ 原帖</a></div>
+        <button class="abtn copy" title="复制完整文案">📋</button>
+        <button class="abtn brief" title="复制拍摄 Brief(数据+Hook+文案)">📝 Brief</button>
+        <a class="abtn" href="${d.url}" target="_blank" title="打开 Instagram 原帖">↗</a></div>
     </div>`;
-  el.querySelector('.cap').textContent = d.caption || '';
+  const capEl = el.querySelector('.cap');
+  const restTxt = lines.slice(1).join('\\n');
+  capEl.innerHTML = hook ? '<b>' + esc(hook) + '</b>' + (restTxt ? '<br>' + esc(restTxt).replace(/\\n/g, '<br>') : '') : '';
   const sel = el.querySelector('.status');
   STATUSES.forEach(s => { const o = document.createElement('option'); o.value = s; o.textContent = s; sel.appendChild(o); });
   sel.value = d.status;
   sel.onchange = () => setStatus(d, sel.value);
   el.querySelector('.copy').onclick = () =>
     navigator.clipboard.writeText(d.caption || '').then(() => toast('✓ 文案已复制', true));
+  el.querySelector('.brief').onclick = () => {
+    const brief = '🎬 爆款参考 @' + d.competitor + ((d.x || 0) >= 2 ? '(自家平均 ×' + d.x + ')' : '') +
+      '\\n📊 🔥' + d.score + ' | ER ' + d.er + '% | ❤️ ' + (d.likes > 0 ? fmt(d.likes) : '隐藏') +
+      ' | 💬 ' + fmt(d.comments) + ' | 👥 ' + fmt(d.followers) + (ago ? ' | ' + ago : '') +
+      '\\n🔗 ' + d.url + '\\n✍️ Hook: ' + hook + '\\n——— 完整文案 ———\\n' + (d.caption || '');
+    navigator.clipboard.writeText(brief).then(() => toast('✓ Brief 已复制,可直接发给拍摄/剪辑', true));
+  };
   io.observe(el.querySelector('.embed'));
   return el;
 }
@@ -388,6 +441,25 @@ async function refreshStatuses() {
 $('fSearch').oninput = () => { shown = PAGE; render(); };
 $('fVideo').onclick = () => { videoOnly = !videoOnly; $('fVideo').classList.toggle('on', videoOnly); shown = PAGE; render(); };
 $('moreBtn').onclick = () => { shown += PAGE; render(); };
+
+// preset quick filters
+$('presets').innerHTML = '<span class="lbl">快筛:</span>';
+PRESETS.forEach(p => {
+  const c = document.createElement('span'); c.className = 'chip2'; c.textContent = p.label;
+  c.onclick = () => { presetOn[p.k] = !presetOn[p.k]; c.classList.toggle('on', presetOn[p.k]); shown = PAGE; render(); };
+  $('presets').appendChild(c);
+});
+
+// trending hashtags among outlier posts
+if (TRENDS.length) {
+  $('trends').innerHTML = '<span class="lbl">🔥 爆款热词:</span>';
+  TRENDS.forEach(([tag, n]) => {
+    const c = document.createElement('span'); c.className = 'chip2'; c.textContent = '#' + tag + ' ' + n;
+    c.onclick = () => { $('fSearch').value = $('fSearch').value === tag ? '' : tag; shown = PAGE; render(); };
+    $('trends').appendChild(c);
+  });
+} else { $('trends').style.display = 'none'; }
+
 render();
 refreshStatuses();
 </script>
@@ -431,6 +503,17 @@ def main():
         med = statistics.median(scores) if len(scores) >= 3 else 0
         p["x"] = round((p["score"] or 0) / med, 1) if med > 0 else 0
 
+    # trending hashtags among outlier posts
+    from collections import Counter
+    cnt = Counter()
+    for p in unique:
+        if (p.get("x") or 0) >= 2 or (p["score"] or 0) >= 10:
+            for tag in re.split(r"[,\s]+", p.get("tags") or ""):
+                tag = tag.strip().lstrip("#").lower()
+                if len(tag) >= 2:
+                    cnt[tag] += 1
+    trends = [[t, n] for t, n in cnt.most_common(15) if n >= 2][:10]
+
     myt = timezone(timedelta(hours=8))
     updated = datetime.now(myt).strftime("%Y-%m-%d %H:%M") + " (GMT+8)"
     payload = json.dumps(unique, ensure_ascii=False).replace("</", "<\\/")
@@ -441,6 +524,7 @@ def main():
         .replace("__BASE__", AIRTABLE_BASE)
         .replace("__TABLE_IDS__", json.dumps([t["id"] for t in TABLES]))
         .replace("__STATUSES__", json.dumps(STATUSES, ensure_ascii=False))
+        .replace("__TRENDS__", json.dumps(trends, ensure_ascii=False))
     )
 
     os.makedirs(os.path.dirname(OUT_PATH), exist_ok=True)
