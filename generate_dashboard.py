@@ -61,7 +61,8 @@ def normalize(rec, table):
         "tbl": table["id"],
         "tracker": table["label"],
         "competitor": f.get("Competitor") or "",
-        "caption": (f.get("Caption") or "")[:600],
+        "caption": (f.get("Caption") or "")[:1000],
+        "tags": f.get("Hashtags") or "",
         "type": f.get("Post Type") or "",
         "likes": f.get("Likes") if isinstance(f.get("Likes"), (int, float)) else 0,
         "comments": f.get("Comments") or 0,
@@ -100,6 +101,14 @@ HTML_TEMPLATE = """<!DOCTYPE html>
   select, .btn { background: var(--card); color: var(--text); border: 1px solid var(--border);
     border-radius: 8px; padding: 7px 10px; font-size: 13px; cursor: pointer; }
   .btn.on { border-color: var(--accent); color: var(--accent); }
+  input#fSearch { background: var(--card); color: var(--text); border: 1px solid var(--border);
+    border-radius: 8px; padding: 7px 10px; font-size: 13px; width: 180px; }
+  .abtn { background: #0d1117; color: var(--muted); border: 1px solid var(--border);
+    border-radius: 8px; padding: 5px 10px; font-size: 12px; cursor: pointer; text-decoration: none; }
+  .abtn:hover { color: var(--accent); border-color: var(--accent); }
+  .badge.bnew { color: var(--pink); border-color: var(--pink); }
+  .badge.bhorse { color: var(--orange); border-color: var(--orange); }
+  .num.x b { color: var(--orange); }
   .tabs { display: flex; gap: 6px; flex-wrap: wrap; max-width: 1400px; margin: 10px auto 0; }
   .tab { background: var(--card); border: 1px solid var(--border); border-radius: 999px;
     padding: 6px 14px; font-size: 13px; color: var(--muted); cursor: pointer; user-select: none; }
@@ -154,10 +163,12 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 <header>
   <div class="hrow">
     <h1>🔥 Viral Posts Dashboard<small id="updated"></small></h1>
+    <input id="fSearch" placeholder="🔍 搜文案 / hashtag / 账号">
     <select id="fTracker"><option value="">全部 Tracker</option></select>
     <select id="fComp"><option value="">全部 Competitor</option></select>
     <select id="fSort">
       <option value="score">按 Viral Score</option>
+      <option value="x">按 爆款倍数 (vs 自家平均)</option>
       <option value="er">按 Engagement Rate</option>
       <option value="comments">按 Comments</option>
       <option value="likes">按 Likes</option>
@@ -203,11 +214,16 @@ const comps = [...new Set(DATA.map(d => d.competitor))].sort();
 comps.forEach(c => { const o = document.createElement('option'); o.value = c; o.textContent = '@'+c; $('fComp').appendChild(o); });
 [...new Set(DATA.map(d => d.tracker))].forEach(t => { const o = document.createElement('option'); o.value = t; o.textContent = t; $('fTracker').appendChild(o); });
 
+function matchQ(d) {
+  const q = ($('fSearch').value || '').trim().toLowerCase();
+  return !q || (d.caption + ' ' + (d.tags || '') + ' ' + d.competitor).toLowerCase().includes(q);
+}
+
 function filtered() {
   const t = $('fTracker').value, c = $('fComp').value, s = $('fSort').value;
   let arr = DATA.filter(d => (!t || d.tracker === t) && (!c || d.competitor === c) && (!videoOnly || d.video)
-    && (curTab === '全部' || d.status === curTab));
-  const key = { score:'score', er:'er', comments:'comments', likes:'likes' }[s];
+    && (curTab === '全部' || d.status === curTab) && matchQ(d));
+  const key = { score:'score', er:'er', comments:'comments', likes:'likes', x:'x' }[s];
   if (s === 'date') arr.sort((a,b) => (b.date||'').localeCompare(a.date||''));
   else arr.sort((a,b) => (b[key]||0) - (a[key]||0));
   return arr;
@@ -215,7 +231,7 @@ function filtered() {
 
 function renderTabs() {
   const t = $('fTracker').value, c = $('fComp').value;
-  const pool = DATA.filter(d => (!t || d.tracker === t) && (!c || d.competitor === c) && (!videoOnly || d.video));
+  const pool = DATA.filter(d => (!t || d.tracker === t) && (!c || d.competitor === c) && (!videoOnly || d.video) && matchQ(d));
   const counts = { '全部': pool.length };
   STATUSES.forEach(s => counts[s] = pool.filter(d => d.status === s).length);
   $('tabs').innerHTML = '';
@@ -287,6 +303,9 @@ function card(d) {
     dragRec = null;
   };
   const emoji = d.video ? '🎬' : (d.type === 'Carousel' ? '🖼️' : '📷');
+  const days = d.date ? Math.max(0, Math.floor((Date.now() - new Date(d.date + 'T00:00:00')) / 864e5)) : null;
+  const ago = days === null ? '' : (days === 0 ? '今天' : days + '天前');
+  const horse = d.followers > 0 && d.followers < 50000 && ((d.x || 0) >= 2 || d.score >= 10);
   el.innerHTML = `
     <div class="embed" data-pid="${d.id}"><div class="ph">${emoji} 载入中…</div></div>
     <div class="meta">
@@ -294,24 +313,30 @@ function card(d) {
         <span class="handle" title="拖到上方 tab 即可归类">⠿</span>
         <a class="who" href="https://www.instagram.com/${d.competitor}/" target="_blank">@${d.competitor}</a>
         <span class="badge">${d.type || '-'}</span>
-        <span class="badge">${d.tracker}</span>
-        <span class="date">${d.date || ''}</span>
+        ${days !== null && days <= 7 ? '<span class="badge bnew">🆕 新帖</span>' : ''}
+        ${horse ? '<span class="badge bhorse">🐴 黑马</span>' : ''}
+        <span class="date" title="${d.date || ''}">${ago}</span>
       </div>
       <div class="nums">
         <span class="num hot">🔥 <b>${d.score}</b></span>
+        ${(d.x || 0) >= 2 ? '<span class="num x">🚀 <b>×' + d.x + ' 平均</b></span>' : ''}
         <span class="num er">ER <b>${d.er}%</b></span>
         <span class="num">❤️ <b>${d.likes > 0 ? fmt(d.likes) : '隐藏'}</b></span>
         <span class="num">💬 <b>${fmt(d.comments)}</b></span>
         <span class="num">👥 <b>${fmt(d.followers)}</b></span>
       </div>
       <div class="cap" onclick="this.classList.toggle('open')"></div>
-      <div class="srow"><label>状态</label><select class="status btn s${d.status}"></select></div>
+      <div class="srow"><label>状态</label><select class="status btn s${d.status}"></select>
+        <button class="abtn copy" title="复制完整文案">📋 文案</button>
+        <a class="abtn" href="${d.url}" target="_blank" title="打开 Instagram 原帖">↗ 原帖</a></div>
     </div>`;
   el.querySelector('.cap').textContent = d.caption || '';
   const sel = el.querySelector('.status');
   STATUSES.forEach(s => { const o = document.createElement('option'); o.value = s; o.textContent = s; sel.appendChild(o); });
   sel.value = d.status;
   sel.onchange = () => setStatus(d, sel.value);
+  el.querySelector('.copy').onclick = () =>
+    navigator.clipboard.writeText(d.caption || '').then(() => toast('✓ 文案已复制', true));
   io.observe(el.querySelector('.embed'));
   return el;
 }
@@ -360,6 +385,7 @@ async function refreshStatuses() {
 }
 
 ['fTracker','fComp','fSort'].forEach(id => $(id).onchange = () => { shown = PAGE; render(); });
+$('fSearch').oninput = () => { shown = PAGE; render(); };
 $('fVideo').onclick = () => { videoOnly = !videoOnly; $('fVideo').classList.toggle('on', videoOnly); shown = PAGE; render(); };
 $('moreBtn').onclick = () => { shown += PAGE; render(); };
 render();
@@ -394,6 +420,16 @@ def main():
         if p["id"] not in seen:
             seen.add(p["id"])
             unique.append(p)
+
+    # outlier multiplier: post score vs the account's own median score
+    import statistics
+    by_comp = {}
+    for p in unique:
+        by_comp.setdefault(p["competitor"], []).append(p["score"] or 0)
+    for p in unique:
+        scores = [s for s in by_comp[p["competitor"]] if s > 0]
+        med = statistics.median(scores) if len(scores) >= 3 else 0
+        p["x"] = round((p["score"] or 0) / med, 1) if med > 0 else 0
 
     myt = timezone(timedelta(hours=8))
     updated = datetime.now(myt).strftime("%Y-%m-%d %H:%M") + " (GMT+8)"
