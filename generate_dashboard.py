@@ -331,7 +331,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     </select>
     <button class="btn" id="fVideo"><svg class="ic"><use href="#i-video"/></svg>只看视频</button>
     <button class="btn" id="keyBtn" title="输入团队密钥后才能更新状态"><svg class="ic"><use href="#i-key"/></svg></button>
-    <a class="btn" href="team.html" target="_top" title="员工工作台"><svg class="ic"><use href="#i-users"/></svg>工作台</a>
+    <a class="btn" href="team.html" target="_top" title="工作台"><svg class="ic"><use href="#i-users"/></svg>工作台</a>
   </div>
   <div class="tabs" id="tabs"></div>
   <div class="chips" id="presets"></div>
@@ -621,7 +621,7 @@ TEAM_TEMPLATE = """<!DOCTYPE html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex">
-<title>员工工作台</title>
+<title>工作台</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
@@ -763,7 +763,7 @@ TEAM_TEMPLATE = """<!DOCTYPE html>
   <div class="hrow">
     <div class="brand">
       <div class="mark"><svg class="ic"><use href="#i-flame"/></svg></div>
-      <h1>员工工作台<small id="updated"></small></h1>
+      <h1>工作台<small id="updated"></small></h1>
     </div>
     <div class="me" id="meBtn" title="点击修改身份">
       <svg class="ic"><use href="#i-user"/></svg><span id="meLabel">未登记</span>
