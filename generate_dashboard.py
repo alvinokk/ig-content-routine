@@ -728,6 +728,17 @@ TEAM_TEMPLATE = """<!DOCTYPE html>
   .sop td, .sop th { border:1px solid var(--border); padding:7px 14px; color:var(--muted); }
   .sop th { color:var(--text); background:var(--card-hi); }
 
+  #mission { border:1px solid rgba(255,120,90,.35); border-radius:16px; padding:15px 18px;
+    margin-bottom:14px; background:linear-gradient(135deg,rgba(255,138,61,.10),rgba(255,77,109,.10)); }
+  #mission .mt { font-weight:600; font-size:14px; display:flex; gap:8px; align-items:center; }
+  #mission .mt .ic { color:var(--orange); }
+  #mission .md { color:var(--muted); font-size:12.5px; margin-top:5px; line-height:1.6; }
+  #mission .md b { color:var(--text); font-family:var(--disp); }
+  .pbar { height:7px; background:#0c0f16; border:1px solid var(--border); border-radius:99px;
+    margin-top:11px; overflow:hidden; }
+  .pbar i { display:block; height:100%; background:linear-gradient(90deg,var(--fire1),var(--fire2));
+    border-radius:99px; transition:width .4s; }
+
   #overlay { position:fixed; inset:0; background:rgba(6,8,12,.88); backdrop-filter:blur(6px);
     z-index:200; display:none; place-items:center; }
   #overlay.show { display:grid; }
@@ -783,16 +794,17 @@ TEAM_TEMPLATE = """<!DOCTYPE html>
 </header>
 <main>
   <div class="page on" id="p-work">
+    <div id="mission"></div>
     <div class="stats">
       <div class="stat pd"><div class="v" id="stPending">–</div><div class="l">未处理(待挑选)</div></div>
       <div class="stat sh"><div class="v" id="stShoot">–</div><div class="l">拍摄中</div></div>
       <div class="stat dn"><div class="v" id="stDone">–</div><div class="l">已处理</div></div>
     </div>
-    <section>
+    <section id="secShoot">
       <h2><svg class="ic"><use href="#i-video"/></svg>拍摄中队列<small>做完一条,点「完成」</small></h2>
       <div id="shootList"></div>
     </section>
-    <section>
+    <section id="secPick">
       <h2><svg class="ic"><use href="#i-flame"/></svg>本周待挑选爆款 Top 8<small>看中就点「选中拍摄」,细看去爆款雷达</small></h2>
       <div id="pickList"></div>
     </section>
@@ -879,6 +891,53 @@ function toast(msg, ok) {
   clearTimeout(t._h); t._h = setTimeout(() => t.classList.remove('show'), 2600);
 }
 
+// ---- weekly mission ----
+let weekStats = { picked: 0, myPicked: 0, done: 0, myDone: 0 };
+const PICK_TARGET = 5;
+
+function weekStart() {
+  const n = new Date();
+  const day = (n.getDay() + 6) % 7; // Monday=0
+  const m = new Date(n.getFullYear(), n.getMonth(), n.getDate() - day);
+  return m;
+}
+
+function renderMission() {
+  const role = localStorage.getItem('tm_role') || '';
+  const name = localStorage.getItem('tm_name') || '';
+  const pend = DATA.filter(d => d.status === '未处理').length;
+  const hot = DATA.filter(d => d.status === '未处理' && (d.x || 0) >= 2).length;
+  const queue = DATA.filter(d => d.status === '拍摄中').length;
+  const m = $('mission');
+  if (role === 'Marketer') {
+    const pct = Math.min(100, Math.round(weekStats.picked / PICK_TARGET * 100));
+    m.innerHTML = '<div class="mt">' + I('flame') + esc(name) + ',本周任务:挑 ' + PICK_TARGET + ' 条爆款进拍摄</div>'
+      + '<div class="md">进度 <b>' + weekStats.picked + '/' + PICK_TARGET + '</b>'
+      + ' · 待挑选还有 <b>' + pend + '</b> 条(其中真爆款 ×2+ 有 <b>' + hot + '</b> 条)'
+      + ' · 从下面清单直接选,或去雷达细看</div>'
+      + '<div class="pbar"><i style="width:' + pct + '%"></i></div>';
+  } else if (role === 'Content Creator') {
+    const total = weekStats.done + queue;
+    const pct = total ? Math.min(100, Math.round(weekStats.done / total * 100)) : 0;
+    m.innerHTML = '<div class="mt">' + I('video') + esc(name) + ',本周任务:清空拍摄中队列</div>'
+      + '<div class="md">本周已完成 <b>' + weekStats.done + '</b> 条 · 队列还有 <b>' + queue + '</b> 条待做</div>'
+      + '<div class="pbar"><i style="width:' + pct + '%"></i></div>';
+  } else {
+    m.innerHTML = '<div class="mt">' + I('flame') + '本周团队概览</div>'
+      + '<div class="md">选题进拍摄 <b>' + weekStats.picked + '</b> 条 · 已完成 <b>' + weekStats.done + '</b> 条'
+      + ' · 队列 <b>' + queue + '</b> 条 · 待挑选 <b>' + pend + '</b> 条</div>';
+  }
+}
+
+function orderSections() {
+  // Marketer sees picks first; Creator sees shooting queue first
+  if ((localStorage.getItem('tm_role') || '') === 'Marketer') {
+    $('secShoot').parentNode.insertBefore($('secPick'), $('secShoot'));
+  } else {
+    $('secPick').parentNode.insertBefore($('secShoot'), $('secPick'));
+  }
+}
+
 // ---- identity ----
 function meLabel() {
   const n = localStorage.getItem('tm_name'), r = localStorage.getItem('tm_role');
@@ -895,7 +954,7 @@ $('oSave').onclick = () => {
   localStorage.setItem('tm_name', n);
   localStorage.setItem('tm_role', $('oRole').value);
   $('overlay').classList.remove('show');
-  meLabel();
+  meLabel(); orderSections(); renderMission();
   if (!getKey()) {
     const k = prompt('输入团队密钥(改状态用,只需一次;没有就问老板要):', '');
     if (k && k.trim()) { localStorage.setItem('team_key', k.trim()); }
@@ -1002,6 +1061,7 @@ function renderWork() {
     btns[1].onclick = () => setStatus(d, '跳过');
     pl.appendChild(r);
   });
+  renderMission();
 }
 
 // ---- live statuses from Airtable ----
@@ -1026,17 +1086,30 @@ async function refreshStatuses() {
   renderWork();
 }
 
-// ---- activity feed ----
+// ---- activity feed + weekly stats ----
 async function loadActs() {
   const key = getKey(); if (!key) return;
   try {
-    const u = `https://api.airtable.com/v0/${BASE}/${LOGTBL}?pageSize=15&sort%5B0%5D%5Bfield%5D=Time&sort%5B0%5D%5Bdirection%5D=desc`;
+    const u = `https://api.airtable.com/v0/${BASE}/${LOGTBL}?pageSize=100&sort%5B0%5D%5Bfield%5D=Time&sort%5B0%5D%5Bdirection%5D=desc`;
     const r = await fetch(u, { headers: { 'Authorization': 'Bearer ' + key } });
     if (!r.ok) return;
     const j = await r.json();
+
+    // weekly mission stats from log
+    const ws = weekStart();
+    const me = localStorage.getItem('tm_name') || '';
+    weekStats = { picked: 0, myPicked: 0, done: 0, myDone: 0 };
+    (j.records || []).forEach(rec => {
+      const f = rec.fields || {};
+      if (!f['Time'] || new Date(f['Time']) < ws) return;
+      if (f['To'] === '拍摄中') { weekStats.picked++; if (f['Who'] === me) weekStats.myPicked++; }
+      if (f['To'] === '已处理') { weekStats.done++; if (f['Who'] === me) weekStats.myDone++; }
+    });
+    renderMission();
+
     const al = $('actList'); al.innerHTML = '';
     if (!(j.records || []).length) { al.innerHTML = '<div class="none">还没有记录 — 改一次状态就会出现</div>'; return; }
-    j.records.forEach(rec => {
+    j.records.slice(0, 15).forEach(rec => {
       const f = rec.fields || {};
       const t = f['Time'] ? new Date(f['Time']) : null;
       const ts = t ? (String(t.getMonth()+1).padStart(2,'0') + '-' + String(t.getDate()).padStart(2,'0') + ' ' + String(t.getHours()).padStart(2,'0') + ':' + String(t.getMinutes()).padStart(2,'0')) : '';
@@ -1047,6 +1120,8 @@ async function loadActs() {
   } catch (e) {}
 }
 
+orderSections();
+renderMission();
 renderWork();
 refreshStatuses();
 loadActs();
