@@ -27,6 +27,11 @@
     padding: 6px 14px; font-size: 13px; color: var(--muted); cursor: pointer; user-select: none; }
   .tab.on { border-color: var(--accent); color: var(--accent); background: rgba(88,166,255,.08); }
   .tab b { font-weight: 600; }
+  body.dragging .tab.droppable { border-style: dashed; border-color: var(--accent); }
+  .tab.over { background: rgba(88,166,255,.25); color: var(--text); transform: scale(1.08); }
+  .card[draggable] { cursor: grab; }
+  .card.lifting { opacity: .45; }
+  .handle { color: var(--muted); font-size: 14px; cursor: grab; user-select: none; }
   main { max-width: 1400px; margin: 20px auto; padding: 0 20px; }
   .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 18px; }
   .card { background: var(--card); border: 1px solid var(--border); border-radius: 14px;
@@ -98,7 +103,7 @@ const DATA = JSON.parse(document.getElementById('data').textContent);
 const BASE = 'appaGrhUHc8aHmGIT';
 const TABLE_IDS = ["tblfMRnvStZziWkPq", "tbl9jmrGp0DK1vJtt"];
 const STATUSES = ["未处理", "拍摄中", "已处理", "跳过"];
-document.getElementById('updated').textContent = '更新于 2026-07-10 05:24 UTC';
+document.getElementById('updated').textContent = '更新于 2026-07-10 05:31 UTC';
 const PAGE = 48;
 let shown = PAGE;
 let videoOnly = false;
@@ -138,9 +143,18 @@ function renderTabs() {
   $('tabs').innerHTML = '';
   ['全部', ...STATUSES].forEach(name => {
     const el = document.createElement('div');
-    el.className = 'tab' + (curTab === name ? ' on' : '');
+    el.className = 'tab' + (curTab === name ? ' on' : '') + (name !== '全部' ? ' droppable' : '');
     el.innerHTML = `${name} <b>${counts[name]}</b>`;
     el.onclick = () => { curTab = name; shown = PAGE; render(); };
+    if (name !== '全部') {
+      el.ondragover = e => { if (dragRec) { e.preventDefault(); el.classList.add('over'); } };
+      el.ondragleave = () => el.classList.remove('over');
+      el.ondrop = e => {
+        e.preventDefault(); el.classList.remove('over');
+        const d = byRec[dragRec]; dragRec = null;
+        if (d && d.status !== name) setStatus(d, name);
+      };
+    }
     $('tabs').appendChild(el);
   });
 }
@@ -160,10 +174,11 @@ const io = new IntersectionObserver(entries => {
   });
 }, { rootMargin: '400px' });
 
-async function setStatus(d, val, sel, cardEl) {
+let dragRec = null;
+
+async function setStatus(d, val) {
   let key = getKey();
-  if (!key) { promptKey(); key = getKey(); if (!key) { sel.value = d.status; return; } }
-  sel.disabled = true;
+  if (!key) { promptKey(); key = getKey(); if (!key) { render(); return; } }
   try {
     const r = await fetch(`https://api.airtable.com/v0/${BASE}/${d.tbl}/${d.rec}`, {
       method: 'PATCH',
@@ -172,25 +187,33 @@ async function setStatus(d, val, sel, cardEl) {
     });
     if (!r.ok) throw new Error('HTTP ' + r.status);
     d.status = val;
-    sel.className = 'status btn s' + val;
-    cardEl.classList.add('saved'); setTimeout(() => cardEl.classList.remove('saved'), 1200);
-    toast('✓ 已更新为「' + val + '」', true);
-    renderTabs();
-    if (curTab !== '全部' && curTab !== val) { render(); }
+    toast('✓ @' + d.competitor + ' 已移到「' + val + '」', true);
   } catch (e) {
-    sel.value = d.status;
     toast('更新失败: ' + e.message + (String(e.message).includes('401') || String(e.message).includes('403') ? ' — 密钥无效?' : ''), false);
   }
-  sel.disabled = false;
+  render();
 }
 
 function card(d) {
   const el = document.createElement('div'); el.className = 'card';
+  el.draggable = true;
+  el.ondragstart = e => {
+    dragRec = d.rec;
+    e.dataTransfer.effectAllowed = 'move';
+    el.classList.add('lifting');
+    document.body.classList.add('dragging');
+  };
+  el.ondragend = () => {
+    el.classList.remove('lifting');
+    document.body.classList.remove('dragging');
+    dragRec = null;
+  };
   const emoji = d.video ? '🎬' : (d.type === 'Carousel' ? '🖼️' : '📷');
   el.innerHTML = `
     <div class="embed" data-pid="${d.id}"><div class="ph">${emoji} 载入中…</div></div>
     <div class="meta">
       <div class="row1">
+        <span class="handle" title="拖到上方 tab 即可归类">⠿</span>
         <a class="who" href="https://www.instagram.com/${d.competitor}/" target="_blank">@${d.competitor}</a>
         <span class="badge">${d.type || '-'}</span>
         <span class="badge">${d.tracker}</span>
@@ -210,7 +233,7 @@ function card(d) {
   const sel = el.querySelector('.status');
   STATUSES.forEach(s => { const o = document.createElement('option'); o.value = s; o.textContent = s; sel.appendChild(o); });
   sel.value = d.status;
-  sel.onchange = () => setStatus(d, sel.value, sel, el);
+  sel.onchange = () => setStatus(d, sel.value);
   io.observe(el.querySelector('.embed'));
   return el;
 }
