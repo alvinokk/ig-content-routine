@@ -1,9 +1,13 @@
 name: Build Dashboard
 
 on:
+  # rebuild as soon as either tracker finishes (the later one bakes full data)
+  workflow_run:
+    workflows: ["IG Content Tracker", "AI Content Tracker"]
+    types: [completed]
   schedule:
-    # Every Monday at 05:00 UTC (13:00 SGT) — after both trackers finish
-    - cron: "0 5 * * 1"
+    # Monday 08:00 UTC (16:00 SGT) — late fallback in case triggers missed
+    - cron: "0 8 * * 1"
   workflow_dispatch:
 
 permissions:
@@ -12,6 +16,8 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+    # skip rebuilds triggered by a failed sync
+    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
 
     steps:
       - name: Checkout repository
@@ -31,7 +37,8 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add docs/index.html
+          git pull --rebase
+          git add docs/
           if git diff --cached --quiet; then
             echo "No changes."
           else

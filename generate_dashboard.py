@@ -27,7 +27,8 @@ TABLES = [
     {"id": "tbl9jmrGp0DK1vJtt", "label": "AI Competitors"},
 ]
 STATUSES = ["未处理", "拍摄中", "已处理", "跳过"]
-LOG_TABLE = "tblritu7othqwUlpk"  # Activity Log — auto work journal
+LOG_TABLE = "tblritu7othqwUlpk"     # Activity Log — auto work journal
+CONFIG_TABLE = "tblNp4PMt68RoppeO"  # Config — marketer-adjustable settings
 
 # comment-bait CTA patterns — require an explicit gated keyword:
 # 留言「X」 / comment "X" / comment WORD below / comment the word X / drop a comment / type "X"
@@ -738,6 +739,9 @@ TEAM_TEMPLATE = """<!DOCTYPE html>
     margin-top:11px; overflow:hidden; }
   .pbar i { display:block; height:100%; background:linear-gradient(90deg,var(--fire1),var(--fire2));
     border-radius:99px; transition:width .4s; }
+  .ageb { font-size:11px; color:var(--muted); border:1px solid var(--border); border-radius:99px;
+    padding:2px 8px; white-space:nowrap; font-variant-numeric:tabular-nums; }
+  .ageb.late { color:var(--red); border-color:rgba(255,92,92,.5); background:rgba(255,92,92,.07); }
 
   #overlay { position:fixed; inset:0; background:rgba(6,8,12,.88); backdrop-filter:blur(6px);
     z-index:200; display:none; place-items:center; }
@@ -893,7 +897,8 @@ function toast(msg, ok) {
 
 // ---- weekly mission ----
 let weekStats = { picked: 0, myPicked: 0, done: 0, myDone: 0 };
-const PICK_TARGET = 5;
+const PICK_TARGET = __TARGET__;
+const pickedAt = {};  // post id -> latest time it entered 拍摄中 (from Activity Log)
 
 function weekStart() {
   const n = new Date();
@@ -1033,8 +1038,16 @@ function renderWork() {
   if (!shoot.length) sl.innerHTML = '<div class="none">队列是空的 — Marketer 去爆款雷达挑几条拖进「拍摄中」</div>';
   shoot.forEach(d => {
     const r = document.createElement('div'); r.className = 'row';
+    let ageHtml = '';
+    const pa = pickedAt[d.id];
+    if (pa) {
+      const ad = Math.floor((Date.now() - pa) / 864e5);
+      ageHtml = '<span class="ageb' + (ad > 7 ? ' late' : '') + '"' + (ad > 7 ? ' title="超过7天了,该收尾或退回"' : '') + '>'
+        + (ad <= 0 ? '今天进' : '已 ' + ad + ' 天') + '</span>';
+    }
     r.innerHTML = '<a class="who2" href="https://www.instagram.com/' + d.competitor + '/" target="_blank">@' + esc(d.competitor) + '</a>'
       + ((d.x || 0) >= 2 ? '<span class="xb">×' + d.x + '</span>' : '')
+      + ageHtml
       + '<span class="hookline">' + esc(firstLine(d.caption)) + '</span>'
       + '<a class="pill" href="' + d.url + '" target="_blank">' + I('ext') + '原帖</a>'
       + pillBtn('ok', 'check', '完成') + pillBtn('bad', 'x', '退回');
@@ -1095,17 +1108,21 @@ async function loadActs() {
     if (!r.ok) return;
     const j = await r.json();
 
-    // weekly mission stats from log
+    // weekly mission stats + queue aging from log (records sorted newest-first)
     const ws = weekStart();
     const me = localStorage.getItem('tm_name') || '';
     weekStats = { picked: 0, myPicked: 0, done: 0, myDone: 0 };
     (j.records || []).forEach(rec => {
       const f = rec.fields || {};
-      if (!f['Time'] || new Date(f['Time']) < ws) return;
+      if (!f['Time']) return;
+      if (f['To'] === '拍摄中' && f['Post ID'] && !(f['Post ID'] in pickedAt)) {
+        pickedAt[f['Post ID']] = new Date(f['Time']);
+      }
+      if (new Date(f['Time']) < ws) return;
       if (f['To'] === '拍摄中') { weekStats.picked++; if (f['Who'] === me) weekStats.myPicked++; }
       if (f['To'] === '已处理') { weekStats.done++; if (f['Who'] === me) weekStats.myDone++; }
     });
-    renderMission();
+    renderWork();
 
     const al = $('actList'); al.innerHTML = '';
     if (!(j.records || []).length) { al.innerHTML = '<div class="none">还没有记录 — 改一次状态就会出现</div>'; return; }
@@ -1177,6 +1194,17 @@ def main():
                     cnt[tag] += 1
     trends = [[t, n] for t, n in cnt.most_common(15) if n >= 2][:10]
 
+    # marketer-adjustable config
+    pick_target = 5
+    try:
+        for rec in fetch_table(pat, CONFIG_TABLE):
+            f = rec.get("fields", {})
+            if f.get("Key") == "weekly_pick_target":
+                pick_target = max(1, int(str(f.get("Value", "5")).strip()))
+    except Exception as exc:
+        print(f"[Config] Config table read failed ({exc}) — target=5")
+    print(f"[Config] weekly_pick_target = {pick_target}")
+
     myt = timezone(timedelta(hours=8))
     updated = datetime.now(myt).strftime("%Y-%m-%d %H:%M") + " (GMT+8)"
     payload = json.dumps(unique, ensure_ascii=False).replace("</", "<\\/")
@@ -1203,6 +1231,7 @@ def main():
         .replace("__UPDATED__", updated)
         .replace("__BASE__", AIRTABLE_BASE)
         .replace("__LOGTBL__", LOG_TABLE)
+        .replace("__TARGET__", str(pick_target))
     )
     team_path = os.path.join(os.path.dirname(OUT_PATH), "team.html")
     with open(team_path, "w", encoding="utf-8") as f:

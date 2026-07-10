@@ -38,6 +38,8 @@ IG_USERNAMES = [
 
 AIRTABLE_BASE = "appaGrhUHc8aHmGIT"
 AIRTABLE_TABLE = "tblfMRnvStZziWkPq"
+COMPETITORS_TABLE = "tblPmOMhS3FW3KvnG"  # self-service competitor list
+TRACKER_LABEL = "IG Competitors"
 
 FIELD_MAP = {
     "post_id": "fldlNaLuLUaSzsdyb",
@@ -95,6 +97,37 @@ def _request(url, method="GET", data=None, headers=None, timeout=60):
     except urllib.error.URLError as exc:
         print(f"  URLError for {method} {url[:120]}: {exc.reason}")
         raise
+
+
+# ---------------------------------------------------------------------------
+# Competitor list (Airtable-managed, marketer self-service)
+# ---------------------------------------------------------------------------
+
+
+def fetch_competitors(pat):
+    """Load active usernames for this tracker from the Competitors table.
+    Returns [] on empty; caller falls back to the built-in list."""
+    formula = urllib.parse.quote(
+        f"AND({{Tracker}}='{TRACKER_LABEL}', {{Active}}=1)"
+    )
+    base_url = (
+        f"https://api.airtable.com/v0/{AIRTABLE_BASE}/{COMPETITORS_TABLE}"
+        f"?filterByFormula={formula}&pageSize=100"
+    )
+    headers = {"Authorization": f"Bearer {pat}"}
+    names = []
+    offset = None
+    while True:
+        url = base_url + (f"&offset={urllib.parse.quote(offset)}" if offset else "")
+        resp = _request(url, headers=headers, timeout=30)
+        for rec in resp.get("records", []):
+            n = ((rec.get("fields") or {}).get("Username") or "").strip().lstrip("@")
+            if n:
+                names.append(n)
+        offset = resp.get("offset")
+        if not offset:
+            break
+    return names
 
 
 # ---------------------------------------------------------------------------
@@ -639,6 +672,18 @@ def main():
     if not airtable_pat:
         print("ERROR: AIRTABLE_PAT environment variable is not set.")
         sys.exit(1)
+
+    # Competitor list from Airtable (marketer-managed); fallback to built-in
+    global IG_USERNAMES
+    try:
+        names = fetch_competitors(airtable_pat)
+        if names:
+            IG_USERNAMES = names
+            print(f"[Config] {len(names)} active competitors loaded from Airtable")
+        else:
+            print("[Config] Competitors table returned none — using built-in list")
+    except Exception as exc:
+        print(f"[Config] Competitors fetch failed ({exc}) — using built-in list")
 
     all_errors = []
 
