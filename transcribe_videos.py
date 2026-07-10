@@ -29,6 +29,7 @@ TABLES = [
 MODEL_NAME = os.environ.get("WHISPER_MODEL", "small")
 MAX_AGE_DAYS = int(os.environ.get("MAX_AGE_DAYS", "14"))
 VIDEO_LIMIT = int(os.environ.get("VIDEO_LIMIT", "25"))
+TIME_BUDGET_MIN = int(os.environ.get("TIME_BUDGET_MIN", "300"))  # stop gracefully before GH 6h cap
 FAIL_MARK = "(转录失败)"
 MAX_CHARS = 5000
 
@@ -123,8 +124,13 @@ def main():
     model = whisper.load_model(MODEL_NAME)
     print("[Init] Model ready.\n")
 
+    import time as _time
+    started = _time.time()
     ok = failed = 0
     for i, it in enumerate(queue, 1):
+        if (_time.time() - started) / 60 > TIME_BUDGET_MIN:
+            print(f"\nTime budget ({TIME_BUDGET_MIN}min) reached — {len(queue) - i + 1} left for next run.")
+            break
         print(f"[{i}/{len(queue)}] @{it['who']} {it['post']}")
         tmp_path = None
         try:
