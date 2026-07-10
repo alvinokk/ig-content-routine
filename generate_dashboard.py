@@ -18,7 +18,7 @@ import os
 import sys
 import urllib.parse
 import urllib.request
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 AIRTABLE_BASE = "appaGrhUHc8aHmGIT"
 TABLES = [
@@ -69,7 +69,7 @@ def normalize(rec, table):
         "followers": f.get("Followers") or 0,
         "date": f.get("Post Date") or "",
         "url": f.get("Post URL") or f"https://www.instagram.com/p/{post_id}/",
-        "video": bool(f.get("Is Video")),
+        "video": bool(f.get("Is Video")) or (f.get("Post Type") in ("Video", "Reel")) or bool(f.get("Video URL")),
         "ratio": f.get("Comments-to-Likes Ratio") or 0,
         "score": f.get("Viral Score") or 0,
         "status": f.get("Status") or "未处理",
@@ -395,7 +395,8 @@ def main():
             seen.add(p["id"])
             unique.append(p)
 
-    updated = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    myt = timezone(timedelta(hours=8))
+    updated = datetime.now(myt).strftime("%Y-%m-%d %H:%M") + " (GMT+8)"
     payload = json.dumps(unique, ensure_ascii=False).replace("</", "<\\/")
     html = (
         HTML_TEMPLATE
