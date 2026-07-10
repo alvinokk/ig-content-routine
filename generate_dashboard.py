@@ -27,8 +27,6 @@ TABLES = [
     {"id": "tbl9jmrGp0DK1vJtt", "label": "AI Competitors"},
 ]
 STATUSES = ["未处理", "拍摄中", "已处理", "跳过"]
-LOG_TABLE = "tblritu7othqwUlpk"     # Activity Log — auto work journal
-CONFIG_TABLE = "tblNp4PMt68RoppeO"  # Config — marketer-adjustable settings
 
 # comment-bait CTA patterns — require an explicit gated keyword:
 # 留言「X」 / comment "X" / comment WORD below / comment the word X / drop a comment / type "X"
@@ -446,28 +444,9 @@ const io = new IntersectionObserver(entries => {
   });
 }, { rootMargin: '400px' });
 
-const LOGTBL = '__LOGTBL__';
-
-function logActivity(key, d, from, to) {
-  // fire-and-forget work journal entry
-  fetch(`https://api.airtable.com/v0/${BASE}/${LOGTBL}`, {
-    method: 'POST',
-    headers: { 'Authorization': 'Bearer ' + key, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ fields: {
-      'Time': new Date().toISOString(),
-      'Who': localStorage.getItem('tm_name') || '未填名字',
-      'Role': localStorage.getItem('tm_role') || '',
-      'Action': '状态变更',
-      'Post ID': d.id, 'Competitor': d.competitor,
-      'From': from, 'To': to, 'Tracker': d.tracker,
-    }, typecast: true })
-  }).catch(() => {});
-}
-
 async function setStatus(d, val) {
   let key = getKey();
   if (!key) { promptKey(); key = getKey(); if (!key) { render(); return; } }
-  const prev = d.status;
   try {
     const r = await fetch(`https://api.airtable.com/v0/${BASE}/${d.tbl}/${d.rec}`, {
       method: 'PATCH',
@@ -476,7 +455,6 @@ async function setStatus(d, val) {
     });
     if (!r.ok) throw new Error('HTTP ' + r.status);
     d.status = val;
-    logActivity(key, d, prev, val);
     toast('✓ @' + d.competitor + ' 已移到「' + val + '」', true);
   } catch (e) {
     toast('更新失败: ' + e.message + (String(e.message).includes('401') || String(e.message).includes('403') ? ' — 密钥无效?' : ''), false);
@@ -735,14 +713,6 @@ TEAM_TEMPLATE = """<!DOCTYPE html>
   #mission .mt .ic { color:var(--orange); }
   #mission .md { color:var(--muted); font-size:12.5px; margin-top:5px; line-height:1.6; }
   #mission .md b { color:var(--text); font-family:var(--disp); }
-  .pbar { height:7px; background:#0c0f16; border:1px solid var(--border); border-radius:99px;
-    margin-top:11px; overflow:hidden; }
-  .pbar i { display:block; height:100%; background:linear-gradient(90deg,var(--fire1),var(--fire2));
-    border-radius:99px; transition:width .4s; }
-  .ageb { font-size:11px; color:var(--muted); border:1px solid var(--border); border-radius:99px;
-    padding:2px 8px; white-space:nowrap; font-variant-numeric:tabular-nums; }
-  .ageb.late { color:var(--red); border-color:rgba(255,92,92,.5); background:rgba(255,92,92,.07); }
-
   #overlay { position:fixed; inset:0; background:rgba(6,8,12,.88); backdrop-filter:blur(6px);
     z-index:200; display:none; place-items:center; }
   #overlay.show { display:grid; }
@@ -812,10 +782,6 @@ TEAM_TEMPLATE = """<!DOCTYPE html>
       <h2><svg class="ic"><use href="#i-flame"/></svg>本周待挑选爆款 Top 8<small>看中就点「选中拍摄」,细看去爆款雷达</small></h2>
       <div id="pickList"></div>
     </section>
-    <section>
-      <h2><svg class="ic"><use href="#i-clock"/></svg>最近动态<small>自动记录,无需写日报</small></h2>
-      <div id="actList"><div class="none">输入团队密钥后显示(点右上角身份 → 会提示)</div></div>
-    </section>
   </div>
   <div class="page" id="p-radar"><div id="radarWrap"></div></div>
   <div class="page sop" id="p-sop">
@@ -864,7 +830,7 @@ TEAM_TEMPLATE = """<!DOCTYPE html>
 </main>
 <div id="overlay"><div class="obox">
   <h2>👋 你是谁?</h2>
-  <p>登记一次,之后所有操作自动记录到你名下,不用写日报。</p>
+  <p>登记一次,方便团队知道是谁在操作。</p>
   <input id="oName" placeholder="你的名字" maxlength="20">
   <select id="oRole">
     <option value="Marketer">Marketer(选题/投放)</option>
@@ -878,7 +844,6 @@ TEAM_TEMPLATE = """<!DOCTYPE html>
 <script>
 const DATA = JSON.parse(document.getElementById('data').textContent);
 const BASE = '__BASE__';
-const LOGTBL = '__LOGTBL__';
 document.getElementById('updated').textContent = '数据更新于 __UPDATED__';
 
 const $ = id => document.getElementById(id);
@@ -895,42 +860,25 @@ function toast(msg, ok) {
   clearTimeout(t._h); t._h = setTimeout(() => t.classList.remove('show'), 2600);
 }
 
-// ---- weekly mission ----
-let weekStats = { picked: 0, myPicked: 0, done: 0, myDone: 0 };
-const PICK_TARGET = __TARGET__;
-const pickedAt = {};  // post id -> latest time it entered 拍摄中 (from Activity Log)
-
-function weekStart() {
-  const n = new Date();
-  const day = (n.getDay() + 6) % 7; // Monday=0
-  const m = new Date(n.getFullYear(), n.getMonth(), n.getDate() - day);
-  return m;
-}
-
+// ---- mission card ----
 function renderMission() {
   const role = localStorage.getItem('tm_role') || '';
   const name = localStorage.getItem('tm_name') || '';
   const pend = DATA.filter(d => d.status === '未处理').length;
   const hot = DATA.filter(d => d.status === '未处理' && (d.x || 0) >= 2).length;
   const queue = DATA.filter(d => d.status === '拍摄中').length;
+  const done = DATA.filter(d => d.status === '已处理').length;
   const m = $('mission');
   if (role === 'Marketer') {
-    const pct = Math.min(100, Math.round(weekStats.picked / PICK_TARGET * 100));
-    m.innerHTML = '<div class="mt">' + I('flame') + esc(name) + ',本周任务:挑 ' + PICK_TARGET + ' 条爆款进拍摄</div>'
-      + '<div class="md">进度 <b>' + weekStats.picked + '/' + PICK_TARGET + '</b>'
-      + ' · 待挑选还有 <b>' + pend + '</b> 条(其中真爆款 ×2+ 有 <b>' + hot + '</b> 条)'
-      + ' · 从下面清单直接选,或去雷达细看</div>'
-      + '<div class="pbar"><i style="width:' + pct + '%"></i></div>';
+    m.innerHTML = '<div class="mt">' + I('flame') + esc(name) + ',任务:从待挑选里选出值得拍的</div>'
+      + '<div class="md">待挑选 <b>' + pend + '</b> 条(其中真爆款 ×2+ 有 <b>' + hot + '</b> 条)'
+      + ' · 从下面清单直接选,或去雷达细看</div>';
   } else if (role === 'Content Creator') {
-    const total = weekStats.done + queue;
-    const pct = total ? Math.min(100, Math.round(weekStats.done / total * 100)) : 0;
-    m.innerHTML = '<div class="mt">' + I('video') + esc(name) + ',本周任务:清空拍摄中队列</div>'
-      + '<div class="md">本周已完成 <b>' + weekStats.done + '</b> 条 · 队列还有 <b>' + queue + '</b> 条待做</div>'
-      + '<div class="pbar"><i style="width:' + pct + '%"></i></div>';
+    m.innerHTML = '<div class="mt">' + I('video') + esc(name) + ',任务:清空拍摄中队列</div>'
+      + '<div class="md">队列还有 <b>' + queue + '</b> 条待做 · 已完成共 <b>' + done + '</b> 条</div>';
   } else {
-    m.innerHTML = '<div class="mt">' + I('flame') + '本周团队概览</div>'
-      + '<div class="md">选题进拍摄 <b>' + weekStats.picked + '</b> 条 · 已完成 <b>' + weekStats.done + '</b> 条'
-      + ' · 队列 <b>' + queue + '</b> 条 · 待挑选 <b>' + pend + '</b> 条</div>';
+    m.innerHTML = '<div class="mt">' + I('flame') + '团队概览</div>'
+      + '<div class="md">待挑选 <b>' + pend + '</b> 条 · 拍摄中 <b>' + queue + '</b> 条 · 已完成 <b>' + done + '</b> 条</div>';
   }
 }
 
@@ -964,7 +912,7 @@ $('oSave').onclick = () => {
     const k = prompt('输入团队密钥(改状态用,只需一次;没有就问老板要):', '');
     if (k && k.trim()) { localStorage.setItem('team_key', k.trim()); }
   }
-  refreshStatuses(); loadActs();
+  refreshStatuses();
 };
 $('meBtn').onclick = showOverlay;
 meLabel();
@@ -979,22 +927,7 @@ document.querySelectorAll('.ntab').forEach(t => t.onclick = () => {
   }
 });
 
-// ---- status write + log ----
-function logActivity(key, d, from, to) {
-  fetch(`https://api.airtable.com/v0/${BASE}/${LOGTBL}`, {
-    method: 'POST',
-    headers: { 'Authorization': 'Bearer ' + key, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ fields: {
-      'Time': new Date().toISOString(),
-      'Who': localStorage.getItem('tm_name') || '未填名字',
-      'Role': localStorage.getItem('tm_role') || '',
-      'Action': '状态变更',
-      'Post ID': d.id, 'Competitor': d.competitor,
-      'From': from, 'To': to, 'Tracker': d.tracker,
-    }, typecast: true })
-  }).catch(() => {});
-}
-
+// ---- status write ----
 async function setStatus(d, val) {
   let key = getKey();
   if (!key) {
@@ -1002,7 +935,6 @@ async function setStatus(d, val) {
     if (k && k.trim()) { localStorage.setItem('team_key', k.trim()); key = k.trim(); }
     else return;
   }
-  const prev = d.status;
   try {
     const r = await fetch(`https://api.airtable.com/v0/${BASE}/${d.tbl}/${d.rec}`, {
       method: 'PATCH',
@@ -1011,9 +943,7 @@ async function setStatus(d, val) {
     });
     if (!r.ok) throw new Error('HTTP ' + r.status);
     d.status = val;
-    logActivity(key, d, prev, val);
     toast('✓ @' + d.competitor + ' → ' + val, true);
-    setTimeout(loadActs, 800);
   } catch (e) {
     toast('失败: ' + e.message, false);
   }
@@ -1038,16 +968,8 @@ function renderWork() {
   if (!shoot.length) sl.innerHTML = '<div class="none">队列是空的 — Marketer 去爆款雷达挑几条拖进「拍摄中」</div>';
   shoot.forEach(d => {
     const r = document.createElement('div'); r.className = 'row';
-    let ageHtml = '';
-    const pa = pickedAt[d.id];
-    if (pa) {
-      const ad = Math.floor((Date.now() - pa) / 864e5);
-      ageHtml = '<span class="ageb' + (ad > 7 ? ' late' : '') + '"' + (ad > 7 ? ' title="超过7天了,该收尾或退回"' : '') + '>'
-        + (ad <= 0 ? '今天进' : '已 ' + ad + ' 天') + '</span>';
-    }
     r.innerHTML = '<a class="who2" href="https://www.instagram.com/' + d.competitor + '/" target="_blank">@' + esc(d.competitor) + '</a>'
       + ((d.x || 0) >= 2 ? '<span class="xb">×' + d.x + '</span>' : '')
-      + ageHtml
       + '<span class="hookline">' + esc(firstLine(d.caption)) + '</span>'
       + '<a class="pill" href="' + d.url + '" target="_blank">' + I('ext') + '原帖</a>'
       + pillBtn('ok', 'check', '完成') + pillBtn('bad', 'x', '退回');
@@ -1099,49 +1021,10 @@ async function refreshStatuses() {
   renderWork();
 }
 
-// ---- activity feed + weekly stats ----
-async function loadActs() {
-  const key = getKey(); if (!key) return;
-  try {
-    const u = `https://api.airtable.com/v0/${BASE}/${LOGTBL}?pageSize=100&sort%5B0%5D%5Bfield%5D=Time&sort%5B0%5D%5Bdirection%5D=desc`;
-    const r = await fetch(u, { headers: { 'Authorization': 'Bearer ' + key } });
-    if (!r.ok) return;
-    const j = await r.json();
-
-    // weekly mission stats + queue aging from log (records sorted newest-first)
-    const ws = weekStart();
-    const me = localStorage.getItem('tm_name') || '';
-    weekStats = { picked: 0, myPicked: 0, done: 0, myDone: 0 };
-    (j.records || []).forEach(rec => {
-      const f = rec.fields || {};
-      if (!f['Time']) return;
-      if (f['To'] === '拍摄中' && f['Post ID'] && !(f['Post ID'] in pickedAt)) {
-        pickedAt[f['Post ID']] = new Date(f['Time']);
-      }
-      if (new Date(f['Time']) < ws) return;
-      if (f['To'] === '拍摄中') { weekStats.picked++; if (f['Who'] === me) weekStats.myPicked++; }
-      if (f['To'] === '已处理') { weekStats.done++; if (f['Who'] === me) weekStats.myDone++; }
-    });
-    renderWork();
-
-    const al = $('actList'); al.innerHTML = '';
-    if (!(j.records || []).length) { al.innerHTML = '<div class="none">还没有记录 — 改一次状态就会出现</div>'; return; }
-    j.records.slice(0, 15).forEach(rec => {
-      const f = rec.fields || {};
-      const t = f['Time'] ? new Date(f['Time']) : null;
-      const ts = t ? (String(t.getMonth()+1).padStart(2,'0') + '-' + String(t.getDate()).padStart(2,'0') + ' ' + String(t.getHours()).padStart(2,'0') + ':' + String(t.getMinutes()).padStart(2,'0')) : '';
-      const div = document.createElement('div'); div.className = 'act';
-      div.innerHTML = '<time>' + ts + '</time><span><b>' + esc(f['Who'] || '?') + '</b> 把 @' + esc(f['Competitor'] || '') + ' 移到 <span class="to">' + esc(f['To'] || '') + '</span></span>';
-      al.appendChild(div);
-    });
-  } catch (e) {}
-}
-
 orderSections();
 renderMission();
 renderWork();
 refreshStatuses();
-loadActs();
 </script>
 </body>
 </html>
@@ -1194,17 +1077,6 @@ def main():
                     cnt[tag] += 1
     trends = [[t, n] for t, n in cnt.most_common(15) if n >= 2][:10]
 
-    # marketer-adjustable config
-    pick_target = 5
-    try:
-        for rec in fetch_table(pat, CONFIG_TABLE):
-            f = rec.get("fields", {})
-            if f.get("Key") == "weekly_pick_target":
-                pick_target = max(1, int(str(f.get("Value", "5")).strip()))
-    except Exception as exc:
-        print(f"[Config] Config table read failed ({exc}) — target=5")
-    print(f"[Config] weekly_pick_target = {pick_target}")
-
     myt = timezone(timedelta(hours=8))
     updated = datetime.now(myt).strftime("%Y-%m-%d %H:%M") + " (GMT+8)"
     payload = json.dumps(unique, ensure_ascii=False).replace("</", "<\\/")
@@ -1216,7 +1088,6 @@ def main():
         .replace("__TABLE_IDS__", json.dumps([t["id"] for t in TABLES]))
         .replace("__STATUSES__", json.dumps(STATUSES, ensure_ascii=False))
         .replace("__TRENDS__", json.dumps(trends, ensure_ascii=False))
-        .replace("__LOGTBL__", LOG_TABLE)
     )
 
     os.makedirs(os.path.dirname(OUT_PATH), exist_ok=True)
@@ -1230,8 +1101,6 @@ def main():
         .replace("__DATA__", payload)
         .replace("__UPDATED__", updated)
         .replace("__BASE__", AIRTABLE_BASE)
-        .replace("__LOGTBL__", LOG_TABLE)
-        .replace("__TARGET__", str(pick_target))
     )
     team_path = os.path.join(os.path.dirname(OUT_PATH), "team.html")
     with open(team_path, "w", encoding="utf-8") as f:

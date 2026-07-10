@@ -254,7 +254,7 @@ const DATA = JSON.parse(document.getElementById('data').textContent);
 const BASE = 'appaGrhUHc8aHmGIT';
 const TABLE_IDS = ["tblfMRnvStZziWkPq", "tbl9jmrGp0DK1vJtt"];
 const STATUSES = ["未处理", "拍摄中", "已处理", "跳过"];
-document.getElementById('updated').textContent = '更新于 2026-07-10 14:36 (GMT+8)';
+document.getElementById('updated').textContent = '更新于 2026-07-10 15:19 (GMT+8)';
 const PAGE = 48;
 let shown = PAGE;
 let videoOnly = false;
@@ -350,28 +350,9 @@ const io = new IntersectionObserver(entries => {
   });
 }, { rootMargin: '400px' });
 
-const LOGTBL = 'tblritu7othqwUlpk';
-
-function logActivity(key, d, from, to) {
-  // fire-and-forget work journal entry
-  fetch(`https://api.airtable.com/v0/${BASE}/${LOGTBL}`, {
-    method: 'POST',
-    headers: { 'Authorization': 'Bearer ' + key, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ fields: {
-      'Time': new Date().toISOString(),
-      'Who': localStorage.getItem('tm_name') || '未填名字',
-      'Role': localStorage.getItem('tm_role') || '',
-      'Action': '状态变更',
-      'Post ID': d.id, 'Competitor': d.competitor,
-      'From': from, 'To': to, 'Tracker': d.tracker,
-    }, typecast: true })
-  }).catch(() => {});
-}
-
 async function setStatus(d, val) {
   let key = getKey();
   if (!key) { promptKey(); key = getKey(); if (!key) { render(); return; } }
-  const prev = d.status;
   try {
     const r = await fetch(`https://api.airtable.com/v0/${BASE}/${d.tbl}/${d.rec}`, {
       method: 'PATCH',
@@ -380,7 +361,6 @@ async function setStatus(d, val) {
     });
     if (!r.ok) throw new Error('HTTP ' + r.status);
     d.status = val;
-    logActivity(key, d, prev, val);
     toast('✓ @' + d.competitor + ' 已移到「' + val + '」', true);
   } catch (e) {
     toast('更新失败: ' + e.message + (String(e.message).includes('401') || String(e.message).includes('403') ? ' — 密钥无效?' : ''), false);
