@@ -137,7 +137,16 @@ def fetch_competitors(pat):
         url = base_url + (f"&offset={urllib.parse.quote(offset)}" if offset else "")
         resp = _request(url, headers=headers, timeout=30)
         for rec in resp.get("records", []):
-            n = ((rec.get("fields") or {}).get("Username") or "").strip().lstrip("@")
+            n = ((rec.get("fields") or {}).get("Username") or "").strip()
+            if "instagram.com" in n:
+                # tolerate pasted profile links (with or without ?igsh=... params)
+                path = urllib.parse.urlparse(n).path
+                parts = [p for p in path.split("/") if p]
+                if not parts or parts[0] in ("p", "reel", "reels", "stories", "tv"):
+                    print(f"  WARNING: skipping non-profile link in Competitors: {n[:60]}")
+                    continue
+                n = parts[0]
+            n = n.lstrip("@").strip()
             if n:
                 names.append(n)
         offset = resp.get("offset")
