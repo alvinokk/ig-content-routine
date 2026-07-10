@@ -2,14 +2,16 @@
 """
 AI Viral-Post Breakdown
 ------------------------
-Feeds each viral post (stats + caption + transcript) to Claude and writes
+Feeds each viral post (stats + caption + transcript) to an LLM and writes
 a structured breakdown (Hook type / structure / why it went viral / how to
 adapt it for the AI course-selling niche) into Airtable's "AI 拆解" field.
 
-Runs weekly after transcription. Uses Haiku — pennies per week.
+Runs weekly after transcription. Provider: GitHub Models (free, built-in
+GITHUB_TOKEN with models:read) by default; uses Anthropic API instead when
+ANTHROPIC_API_KEY is set.
 
-Env: AIRTABLE_PAT, ANTHROPIC_API_KEY
-     CLAUDE_MODEL (default claude-haiku-4-5-20251001), POST_LIMIT (default 60)
+Env: AIRTABLE_PAT, GITHUB_TOKEN (or ANTHROPIC_API_KEY)
+     GH_MODEL (default openai/gpt-4o-mini), POST_LIMIT (default 60)
 """
 
 import json
@@ -25,6 +27,7 @@ TABLES = [
     ("tbl9jmrGp0DK1vJtt", "AI Competitors"),
 ]
 MODEL = os.environ.get("CLAUDE_MODEL", "claude-haiku-4-5-20251001")
+GH_MODEL = os.environ.get("GH_MODEL", "openai/gpt-4o-mini")
 POST_LIMIT = int(os.environ.get("POST_LIMIT", "60"))
 
 SYSTEM = (
@@ -74,16 +77,19 @@ def fetch_pending(pat, table_id):
     return out
 
 
-def analyze(api_key, f):
+def _build_prompt(f):
     transcript = f.get("Transcript") or ""
     if transcript in ("(转录失败)", "(视频不可用)", "(无口播内容)"):
         transcript = ""
-    prompt = (
+    return (
         f"账号: @{f.get('Competitor', '?')}(粉丝 {f.get('Followers', '?')})\n"
         f"类型: {f.get('Post Type', '?')} | 赞 {f.get('Likes', '?')} | 评论 {f.get('Comments', '?')}\n"
         f"文案(caption):\n{(f.get('Caption') or '')[:1200]}\n"
         + (f"\n口播稿:\n{transcript[:2500]}" if transcript else "")
     )
+
+
+def analyze_anthropic(api_key, f):
     resp = _request(
         "https://api.anthropic.com/v1/messages",
         method="POST",
@@ -91,7 +97,7 @@ def analyze(api_key, f):
             "model": MODEL,
             "max_tokens": 400,
             "system": SYSTEM,
-            "messages": [{"role": "user", "content": prompt}],
+            "messages": [{"role": "user", "content": _build_prompt(f)}],
         },
         headers={
             "x-api-key": api_key,
@@ -100,8 +106,27 @@ def analyze(api_key, f):
         timeout=90,
     )
     parts = resp.get("content") or []
-    text = "".join(p.get("text", "") for p in parts if p.get("type") == "text").strip()
-    return text
+    return "".join(p.get("text", "") for p in parts if p.get("type") == "text").strip()
+
+
+def analyze_github(token, f):
+    """Free path: GitHub Models chat/completions with the Actions token."""
+    resp = _request(
+        "https://models.github.ai/inference/chat/completions",
+        method="POST",
+        data={
+            "model": GH_MODEL,
+            "max_tokens": 400,
+            "messages": [
+                {"role": "system", "content": SYSTEM},
+                {"role": "user", "content": _build_prompt(f)},
+            ],
+        },
+        headers={"Authorization": "Bearer " + token},
+        timeout=90,
+    )
+    choices = resp.get("choices") or []
+    return (choices[0].get("message", {}).get("content") or "").strip() if choices else ""
 
 
 def save(pat, table_id, rec_id, text):
@@ -116,13 +141,21 @@ def save(pat, table_id, rec_id, text):
 
 def main():
     pat = (os.environ.get("AIRTABLE_PAT") or os.environ.get("AIRTABLE_API_KEY") or "").strip()
-    api_key = (os.environ.get("ANTHROPIC_API_KEY") or "").strip()
+    anthropic_key = (os.environ.get("ANTHROPIC_API_KEY") or "").strip()
+    gh_token = (os.environ.get("GITHUB_TOKEN") or "").strip()
     if not pat:
         print("ERROR: AIRTABLE_PAT is not set.")
         sys.exit(1)
-    if not api_key:
-        print("ANTHROPIC_API_KEY not set — skipping AI breakdown (non-fatal).")
+    if anthropic_key:
+        provider, delay = "anthropic", 0.5
+        call = lambda f: analyze_anthropic(anthropic_key, f)
+    elif gh_token:
+        provider, delay = "github-models (" + GH_MODEL + ")", 4.5  # free tier: 15 req/min
+        call = lambda f: analyze_github(gh_token, f)
+    else:
+        print("No ANTHROPIC_API_KEY or GITHUB_TOKEN — skipping AI breakdown (non-fatal).")
         return
+    print(f"[Provider] {provider}")
 
     queue = []
     for table_id, label in TABLES:
@@ -143,7 +176,7 @@ def main():
     for i, it in enumerate(queue, 1):
         who = it["f"].get("Competitor", "?")
         try:
-            text = analyze(api_key, it["f"])
+            text = call(it["f"])
             if not text:
                 raise ValueError("empty response")
             save(pat, it["tbl"], it["rec"], text)
@@ -152,7 +185,7 @@ def main():
         except Exception as exc:
             failed += 1
             print(f"[{i}/{len(queue)}] @{who} FAILED: {exc}")
-        time.sleep(0.5)
+        time.sleep(delay)
 
     print(f"\nDone: {ok} analyzed, {failed} failed (will retry next run).")
 

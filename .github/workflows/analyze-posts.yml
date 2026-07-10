@@ -11,6 +11,10 @@ on:
         description: "Max posts this run"
         default: "60"
 
+permissions:
+  contents: read
+  models: read
+
 jobs:
   analyze:
     runs-on: ubuntu-latest
@@ -28,6 +32,6 @@ jobs:
       - name: Analyze new posts
         env:
           AIRTABLE_PAT: ${{ secrets.AIRTABLE_PAT }}
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           POST_LIMIT: ${{ inputs.post_limit || '60' }}
         run: python analyze_posts.py
