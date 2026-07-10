@@ -1,9 +1,9 @@
 name: Build Dashboard
 
 on:
-  # rebuild after transcription finishes (sync -> transcribe -> build)
+  # rebuild at the end of the chain (sync -> transcribe -> analyze -> build)
   workflow_run:
-    workflows: ["Transcribe Videos"]
+    workflows: ["Analyze Posts"]
     types: [completed]
   schedule:
     # Monday 08:00 UTC (16:00 SGT) — late fallback in case triggers missed

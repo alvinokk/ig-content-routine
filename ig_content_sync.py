@@ -140,6 +140,68 @@ def fetch_competitors(pat):
 
 
 # ---------------------------------------------------------------------------
+# Auto-suggest new competitors (from related-profiles data, human approves)
+# ---------------------------------------------------------------------------
+
+LAST_PROFILE_ITEMS = []
+
+
+def suggest_competitors(pat):
+    """Harvest related profiles seen during this scrape and add the most
+    frequent unseen ones to the Competitors table with Active UNCHECKED,
+    so the marketer reviews and ticks the good ones."""
+    from datetime import datetime, timezone as _tz
+    # all usernames already in the table (any tracker, any active state)
+    existing = set()
+    base_url = (
+        f"https://api.airtable.com/v0/{AIRTABLE_BASE}/{COMPETITORS_TABLE}"
+        f"?pageSize=100&fields%5B%5D=Username"
+    )
+    headers = {"Authorization": f"Bearer {pat}"}
+    offset = None
+    while True:
+        url = base_url + (f"&offset={urllib.parse.quote(offset)}" if offset else "")
+        resp = _request(url, headers=headers, timeout=30)
+        for rec in resp.get("records", []):
+            u = ((rec.get("fields") or {}).get("Username") or "").strip().lower().lstrip("@")
+            if "instagram.com" in u:
+                parts = [p for p in urllib.parse.urlparse(u).path.split("/") if p]
+                u = parts[0] if parts else ""
+            if u:
+                existing.add(u)
+        offset = resp.get("offset")
+        if not offset:
+            break
+
+    counts = {}
+    for profile in LAST_PROFILE_ITEMS:
+        for rp in (profile.get("relatedProfiles") or []):
+            u = (rp.get("username") or "").strip().lower()
+            if u and u not in existing:
+                counts[u] = counts.get(u, 0) + 1
+
+    top = sorted(counts.items(), key=lambda x: -x[1])[:8]
+    if not top:
+        print("[Suggest] No new related profiles found this run.")
+        return
+
+    today = datetime.now(_tz.utc).date().isoformat()
+    records = [{"fields": {
+        "Username": u,
+        "Tracker": TRACKER_LABEL,
+        "Notes": f"系统推荐 {today}（相关度 {n}）— 觉得好就勾 Active",
+    }} for u, n in top]
+    _request(
+        f"https://api.airtable.com/v0/{AIRTABLE_BASE}/{COMPETITORS_TABLE}",
+        method="POST",
+        data={"records": records, "typecast": True},
+        headers=headers, timeout=30,
+    )
+    print(f"[Suggest] Added {len(records)} suggested competitors (Active unchecked): "
+          + ", ".join(u for u, _ in top))
+
+
+# ---------------------------------------------------------------------------
 # Apify helpers
 # ---------------------------------------------------------------------------
 
@@ -199,6 +261,9 @@ def scrape_profiles(token):
         actor_input,
         "Step 1",
     )
+
+    global LAST_PROFILE_ITEMS
+    LAST_PROFILE_ITEMS = items
 
     followers_map = {}
     for profile in items:
@@ -703,6 +768,10 @@ def main():
     # --- Step 1: Scrape profiles (follower counts) ---
     try:
         followers_map = scrape_profiles(apify_token)
+        try:
+            suggest_competitors(airtable_pat)
+        except Exception as exc:
+            print(f"[Suggest] skipped ({exc})")
     except Exception as exc:
         print(f"FATAL: Profile scrape failed: {exc}")
         sys.exit(1)

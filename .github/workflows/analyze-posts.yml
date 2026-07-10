@@ -1,0 +1,33 @@
+name: Analyze Posts
+
+on:
+  # run after transcription so breakdowns can use the fresh transcripts
+  workflow_run:
+    workflows: ["Transcribe Videos"]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      post_limit:
+        description: "Max posts this run"
+        default: "60"
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Analyze new posts
+        env:
+          AIRTABLE_PAT: ${{ secrets.AIRTABLE_PAT }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          POST_LIMIT: ${{ inputs.post_limit || '60' }}
+        run: python analyze_posts.py

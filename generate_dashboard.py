@@ -77,6 +77,7 @@ def normalize(rec, table):
         "competitor": f.get("Competitor") or "",
         "caption": caption,
         "transcript": (f.get("Transcript") or "")[:2000],
+        "brk": (f.get("AI 拆解") or "")[:600],
         "tags": f.get("Hashtags") or "",
         "bait": bool(BAIT_RE.search(caption)),
         "type": f.get("Post Type") or "",
@@ -250,6 +251,12 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; cursor: pointer; }
   .cap.open { -webkit-line-clamp: unset; }
   .cap b { color: var(--text); font-weight: 600; }
+  .ai { border-left: 2px solid var(--orange); background: rgba(240,163,63,.06);
+    padding: 8px 11px; border-radius: 0 10px 10px 0; font-size: 12px; line-height: 1.65;
+    color: var(--muted); cursor: pointer; display: -webkit-box; -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical; overflow: hidden; }
+  .ai.open { -webkit-line-clamp: unset; }
+  .ai b { color: var(--orange); font-weight: 600; }
 
   .srow { display: flex; align-items: center; gap: 7px; }
   .srow label { font-size: 12px; color: var(--faint); }
@@ -388,7 +395,7 @@ comps.forEach(c => { const o = document.createElement('option'); o.value = c; o.
 
 function matchQ(d) {
   const q = ($('fSearch').value || '').trim().toLowerCase();
-  return !q || (d.caption + ' ' + (d.tags || '') + ' ' + d.competitor).toLowerCase().includes(q);
+  return !q || (d.caption + ' ' + (d.tags || '') + ' ' + (d.transcript || '') + ' ' + (d.brk || '') + ' ' + d.competitor).toLowerCase().includes(q);
 }
 
 function basePool() {
@@ -507,6 +514,7 @@ function card(d, idx) {
         <span class="num" title="Followers">${I('users')}<b>${fmt(d.followers)}</b></span>
       </div>
       <div class="cap" onclick="this.classList.toggle('open')"></div>
+      ${d.brk ? '<div class="ai" onclick="this.classList.toggle(&quot;open&quot;)"></div>' : ''}
       <div class="srow"><label>状态</label><select class="status btn s${d.status}"></select>
         <button class="abtn copy" title="复制完整文案">${I('copy')}文案</button>
         ${tr ? '<button class="abtn mic" title="复制视频口播逐字稿">' + I('mic') + '口播</button>' : ''}
@@ -516,6 +524,8 @@ function card(d, idx) {
   const capEl = el.querySelector('.cap');
   const restTxt = lines.slice(1).join('\\n');
   capEl.innerHTML = hook ? '<b>' + esc(hook) + '</b>' + (restTxt ? '<br>' + esc(restTxt).replace(/\\n/g, '<br>') : '') : '';
+  const aiEl = el.querySelector('.ai');
+  if (aiEl) aiEl.innerHTML = '<b>💡 AI 拆解</b><br>' + esc(d.brk).split(String.fromCharCode(10)).join('<br>');
   const sel = el.querySelector('.status');
   STATUSES.forEach(s => { const o = document.createElement('option'); o.value = s; o.textContent = s; sel.appendChild(o); });
   sel.value = d.status;
@@ -531,6 +541,7 @@ function card(d, idx) {
       '📊 🔥' + d.score + ' | ER ' + d.er + '% | ❤️ ' + (d.likes > 0 ? fmt(d.likes) : '隐藏') +
       ' | 💬 ' + fmt(d.comments) + ' | 👥 ' + fmt(d.followers) + (ago ? ' | ' + ago : ''),
       '🔗 ' + d.url, '✍️ Hook: ' + hook];
+    if (d.brk) parts.push('——— AI 拆解 ———', d.brk);
     if (tr) parts.push('——— 口播稿 ———', tr);
     parts.push('——— 完整文案 ———', d.caption || '');
     navigator.clipboard.writeText(parts.join(NL)).then(() => toast('✓ Brief 已复制,可直接发给拍摄/剪辑', true));
