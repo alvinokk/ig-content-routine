@@ -574,6 +574,9 @@ $('keyBtn').classList.toggle('on', !!getKey());
 // live status refresh (so weekly-baked page shows current statuses)
 async function refreshStatuses() {
   const key = getKey(); if (!key) return;
+  // throttle: Airtable free-plan API quota (1000 calls/month)
+  if (Date.now() - (+localStorage.getItem('st_ts') || 0) < 600000) return;
+  localStorage.setItem('st_ts', String(Date.now()));
   try {
     for (const tbl of TABLE_IDS) {
       let offset = '';
@@ -1033,6 +1036,9 @@ function renderWork() {
 // ---- live statuses from Airtable ----
 async function refreshStatuses() {
   const key = getKey(); if (!key) { renderWork(); return; }
+  // throttle: Airtable free-plan API quota (1000 calls/month)
+  if (Date.now() - (+localStorage.getItem('st_ts') || 0) < 600000) { renderWork(); return; }
+  localStorage.setItem('st_ts', String(Date.now()));
   try {
     for (const tbl of [...new Set(DATA.map(d => d.tbl))]) {
       let offset = '';

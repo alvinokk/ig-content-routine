@@ -261,7 +261,7 @@ const DATA = JSON.parse(document.getElementById('data').textContent);
 const BASE = 'appaGrhUHc8aHmGIT';
 const TABLE_IDS = ["tblfMRnvStZziWkPq", "tbl9jmrGp0DK1vJtt"];
 const STATUSES = ["未处理", "拍摄中", "已处理", "跳过"];
-document.getElementById('updated').textContent = '更新于 2026-07-10 20:38 (GMT+8)';
+document.getElementById('updated').textContent = '更新于 2026-07-12 12:28 (GMT+8)';
 const PAGE = 48;
 let shown = PAGE;
 let videoOnly = false;
@@ -478,6 +478,9 @@ $('keyBtn').classList.toggle('on', !!getKey());
 // live status refresh (so weekly-baked page shows current statuses)
 async function refreshStatuses() {
   const key = getKey(); if (!key) return;
+  // throttle: Airtable free-plan API quota (1000 calls/month)
+  if (Date.now() - (+localStorage.getItem('st_ts') || 0) < 600000) return;
+  localStorage.setItem('st_ts', String(Date.now()));
   try {
     for (const tbl of TABLE_IDS) {
       let offset = '';

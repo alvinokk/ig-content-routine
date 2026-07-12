@@ -247,7 +247,7 @@
 <script>
 const DATA = JSON.parse(document.getElementById('data').textContent);
 const BASE = 'appaGrhUHc8aHmGIT';
-document.getElementById('updated').textContent = '数据更新于 2026-07-10 20:38 (GMT+8)';
+document.getElementById('updated').textContent = '数据更新于 2026-07-12 12:28 (GMT+8)';
 
 const $ = id => document.getElementById(id);
 const I = n => '<svg class="ic"><use href="#i-' + n + '"/></svg>';
@@ -405,6 +405,9 @@ function renderWork() {
 // ---- live statuses from Airtable ----
 async function refreshStatuses() {
   const key = getKey(); if (!key) { renderWork(); return; }
+  // throttle: Airtable free-plan API quota (1000 calls/month)
+  if (Date.now() - (+localStorage.getItem('st_ts') || 0) < 600000) { renderWork(); return; }
+  localStorage.setItem('st_ts', String(Date.now()));
   try {
     for (const tbl of [...new Set(DATA.map(d => d.tbl))]) {
       let offset = '';
