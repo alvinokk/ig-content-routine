@@ -253,9 +253,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
   .cap b { color: var(--text); font-weight: 600; }
   .ai { border-left: 2px solid var(--orange); background: rgba(240,163,63,.06);
     padding: 8px 11px; border-radius: 0 10px 10px 0; font-size: 12px; line-height: 1.65;
-    color: var(--muted); cursor: pointer; display: -webkit-box; -webkit-line-clamp: 2;
-    -webkit-box-orient: vertical; overflow: hidden; }
-  .ai.open { -webkit-line-clamp: unset; }
+    color: var(--muted); }
   .ai b { color: var(--orange); font-weight: 600; }
 
   .srow { display: flex; align-items: center; gap: 7px; }
