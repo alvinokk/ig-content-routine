@@ -462,6 +462,7 @@ async function setStatus(d, val) {
     });
     if (!r.ok) throw new Error('HTTP ' + r.status);
     d.status = val;
+    cacheStatus(d.rec, val);
     toast('✓ @' + d.competitor + ' 已移到「' + val + '」', true);
   } catch (e) {
     toast('更新失败: ' + e.message + (String(e.message).includes('401') || String(e.message).includes('403') ? ' — 密钥无效?' : ''), false);
@@ -569,12 +570,28 @@ function promptKey() {
 $('keyBtn').onclick = promptKey;
 $('keyBtn').classList.toggle('on', !!getKey());
 
+function applyStatusCache() {
+  try {
+    const c = JSON.parse(localStorage.getItem('st_cache') || '{}');
+    Object.keys(c).forEach(rid => { const d = byRec[rid]; if (d) d.status = c[rid]; });
+  } catch (e) {}
+}
+
+function cacheStatus(rid, val) {
+  try {
+    const c = JSON.parse(localStorage.getItem('st_cache') || '{}');
+    c[rid] = val; localStorage.setItem('st_cache', JSON.stringify(c));
+  } catch (e) {}
+}
+
 // live status refresh (so weekly-baked page shows current statuses)
 async function refreshStatuses() {
   const key = getKey(); if (!key) return;
-  // throttle: Airtable free-plan API quota (1000 calls/month)
+  applyStatusCache(); render();  // last-known statuses shared across pages
+  // throttle the network fetch: Airtable free-plan API quota (1000 calls/month)
   if (Date.now() - (+localStorage.getItem('st_ts') || 0) < 600000) return;
   localStorage.setItem('st_ts', String(Date.now()));
+  const fresh = {};
   try {
     for (const tbl of TABLE_IDS) {
       let offset = '';
@@ -584,12 +601,15 @@ async function refreshStatuses() {
         if (!r.ok) return;
         const j = await r.json();
         (j.records || []).forEach(rec => {
+          const st = (rec.fields && rec.fields['Status']) || '未处理';
           const d = byRec[rec.id];
-          if (d) d.status = (rec.fields && rec.fields['Status']) || '未处理';
+          if (d) d.status = st;
+          if (st !== '未处理') fresh[rec.id] = st;
         });
         offset = j.offset || '';
       } while (offset);
     }
+    localStorage.setItem('st_cache', JSON.stringify(fresh));
     render();
   } catch (e) { /* offline etc — keep baked statuses */ }
 }
@@ -992,6 +1012,7 @@ async function setStatus(d, val) {
     });
     if (!r.ok) throw new Error('HTTP ' + r.status);
     d.status = val;
+    cacheStatus(d.rec, val);
     toast('✓ @' + d.competitor + ' → ' + val, true);
   } catch (e) {
     toast('失败: ' + e.message, false);
@@ -1048,12 +1069,28 @@ function renderWork() {
   renderMission();
 }
 
+function applyStatusCache() {
+  try {
+    const c = JSON.parse(localStorage.getItem('st_cache') || '{}');
+    Object.keys(c).forEach(rid => { const d = byRec[rid]; if (d) d.status = c[rid]; });
+  } catch (e) {}
+}
+
+function cacheStatus(rid, val) {
+  try {
+    const c = JSON.parse(localStorage.getItem('st_cache') || '{}');
+    c[rid] = val; localStorage.setItem('st_cache', JSON.stringify(c));
+  } catch (e) {}
+}
+
 // ---- live statuses from Airtable ----
 async function refreshStatuses() {
   const key = getKey(); if (!key) { renderWork(); return; }
-  // throttle: Airtable free-plan API quota (1000 calls/month)
-  if (Date.now() - (+localStorage.getItem('st_ts') || 0) < 600000) { renderWork(); return; }
+  applyStatusCache(); renderWork();  // last-known statuses shared across pages
+  // throttle the network fetch: Airtable free-plan API quota (1000 calls/month)
+  if (Date.now() - (+localStorage.getItem('st_ts') || 0) < 600000) { return; }
   localStorage.setItem('st_ts', String(Date.now()));
+  const fresh = {};
   try {
     for (const tbl of [...new Set(DATA.map(d => d.tbl))]) {
       let offset = '';
@@ -1063,12 +1100,15 @@ async function refreshStatuses() {
         if (!r.ok) break;
         const j = await r.json();
         (j.records || []).forEach(rec => {
+          const st = (rec.fields && rec.fields['Status']) || '未处理';
           const d = byRec[rec.id];
-          if (d) d.status = (rec.fields && rec.fields['Status']) || '未处理';
+          if (d) d.status = st;
+          if (st !== '未处理') fresh[rec.id] = st;
         });
         offset = j.offset || '';
       } while (offset);
     }
+    localStorage.setItem('st_cache', JSON.stringify(fresh));
   } catch (e) {}
   renderWork();
 }
