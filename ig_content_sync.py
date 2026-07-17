@@ -185,6 +185,34 @@ def suggest_competitors(pat):
         print("[Suggest] No new related profiles found this run.")
         return
 
+    # Airtable's free plan counts records per BASE, not per table, so an
+    # ever-growing suggestion list would eventually starve the posts table.
+    # Suggestions are a rolling shortlist: clear last week's un-adopted ones first.
+    stale = []
+    offset = None
+    while True:
+        url = (f"https://api.airtable.com/v0/{AIRTABLE_BASE}/{COMPETITORS_TABLE}"
+               f"?pageSize=100&fields%5B%5D=Active&fields%5B%5D=Notes"
+               + (f"&offset={urllib.parse.quote(offset)}" if offset else ""))
+        resp = _request(url, headers=headers, timeout=30)
+        for rec in resp.get("records", []):
+            f = rec.get("fields") or {}
+            if not f.get("Active") and str(f.get("Notes") or "").startswith("系统推荐"):
+                stale.append(rec["id"])
+        offset = resp.get("offset")
+        if not offset:
+            break
+    for i in range(0, len(stale), 10):
+        params = "&".join(f"records[]={rid}" for rid in stale[i:i + 10])
+        try:
+            _request(f"https://api.airtable.com/v0/{AIRTABLE_BASE}/{COMPETITORS_TABLE}?{params}",
+                     method="DELETE", headers=headers, timeout=30)
+        except Exception as exc:
+            print(f"[Suggest] WARNING: could not clear old suggestions: {exc}")
+            break
+    if stale:
+        print(f"[Suggest] Cleared {len(stale)} un-adopted suggestions from last run")
+
     today = datetime.now(_tz.utc).date().isoformat()
     records = [{"fields": {
         "Username": u,
@@ -232,7 +260,18 @@ def _run_apify_actor(token, actor_id, actor_input, step_label):
         if status in ("FAILED", "ABORTED", "TIMED-OUT"):
             raise RuntimeError(f"Apify run ended with status: {status}")
     else:
-        raise TimeoutError(f"Apify run {run_id} did not finish within {POLL_TIMEOUT}s")
+        # Stop the run: it would otherwise keep scraping and bill in full for a
+        # dataset nobody is going to fetch.
+        try:
+            _request(f"https://api.apify.com/v2/actor-runs/{run_id}/abort?token={token}",
+                     method="POST", timeout=30)
+            print(f"  Aborted run {run_id} to stop further billing.")
+        except Exception as exc:
+            print(f"  WARNING: could not abort run {run_id} ({exc}) — "
+                  f"abort it manually in the Apify console to avoid charges.")
+        raise TimeoutError(
+            f"Apify run {run_id} did not finish within {POLL_TIMEOUT}s. "
+            f"Too many competitors for one run? Reduce Active accounts or raise POLL_TIMEOUT.")
 
     # Fetch dataset
     print(f"  Fetching dataset items...")

@@ -77,7 +77,8 @@ def normalize(rec, table):
         "competitor": f.get("Competitor") or "",
         "caption": caption,
         "transcript": (f.get("Transcript") or "")[:2000],
-        "brk": (f.get("AI 拆解") or "")[:600],
+        "brk": ("" if (f.get("AI 拆解") or "").strip() == "(拆解失败)"
+                else (f.get("AI 拆解") or "")[:600]),
         "tags": f.get("Hashtags") or "",
         "bait": bool(BAIT_RE.search(caption)),
         "type": f.get("Post Type") or "",

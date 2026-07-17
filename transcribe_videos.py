@@ -6,8 +6,10 @@ Downloads new viral reels and transcribes the spoken audio with local
 Whisper, writing the transcript back to Airtable's Transcript field.
 
 Runs on GitHub Actions after each weekly sync. IG CDN video URLs expire
-within days, so only recently-synced posts are attempted; anything that
-fails is marked so it is never retried.
+within days, so only recently-synced posts are attempted. A transcript is
+saved in its own step: if Whisper succeeded, a failed write is retried next
+run rather than buried under a failure mark. Only videos the CDN reports as
+gone (4xx) are marked permanently; transient errors keep their retry window.
 
 Env: AIRTABLE_PAT (required)
      WHISPER_MODEL (default "small"), MAX_AGE_DAYS (default 14),
@@ -18,6 +20,7 @@ import json
 import os
 import sys
 import tempfile
+import urllib.error
 import urllib.parse
 import urllib.request
 
@@ -126,31 +129,30 @@ def main():
 
     import time as _time
     started = _time.time()
-    ok = failed = 0
+    ok = failed = retry = 0
     for i, it in enumerate(queue, 1):
         if (_time.time() - started) / 60 > TIME_BUDGET_MIN:
             print(f"\nTime budget ({TIME_BUDGET_MIN}min) reached — {len(queue) - i + 1} left for next run.")
             break
         print(f"[{i}/{len(queue)}] @{it['who']} {it['post']}")
         tmp_path = None
+        text = None
+        gone = False
+        # Transcribe first, save second. A transcript that made it out of Whisper
+        # must never be lost to a hiccup while writing it back — IG video URLs
+        # expire, so it cannot be regenerated.
         try:
             with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as f:
                 tmp_path = f.name
             download(it["url"], tmp_path)
             result = model.transcribe(tmp_path, fp16=False)
-            text = (result.get("text") or "").strip()
-            if not text:
-                text = "(无口播内容)"
-            save_transcript(pat, it["tbl"], it["rec"], text)
-            ok += 1
-            print(f"  OK: {text[:70]}{'...' if len(text) > 70 else ''}")
+            text = (result.get("text") or "").strip() or "(无口播内容)"
+        except urllib.error.HTTPError as exc:
+            # 4xx from the CDN = video gone for good; 5xx = worth another try
+            gone = exc.code in (401, 403, 404, 410)
+            print(f"  {'GONE' if gone else 'TRANSIENT'}: HTTP {exc.code}")
         except Exception as exc:
-            failed += 1
-            print(f"  FAILED: {exc}")
-            try:
-                save_transcript(pat, it["tbl"], it["rec"], FAIL_MARK)
-            except Exception:
-                pass
+            print(f"  TRANSIENT: {exc}")
         finally:
             if tmp_path:
                 try:
@@ -158,7 +160,27 @@ def main():
                 except OSError:
                     pass
 
-    print(f"\nDone: {ok} transcribed, {failed} failed (marked, will not retry).")
+        if text is not None:
+            try:
+                save_transcript(pat, it["tbl"], it["rec"], text)
+                ok += 1
+                print(f"  OK: {text[:70]}{'...' if len(text) > 70 else ''}")
+            except Exception as exc:
+                # Transcribed fine but could not save: leave the field empty so
+                # the next run retries instead of burying it under a fail mark.
+                retry += 1
+                print(f"  SAVE FAILED, will retry next run: {exc}")
+        elif gone:
+            try:
+                save_transcript(pat, it["tbl"], it["rec"], FAIL_MARK)
+            except Exception:
+                pass
+            failed += 1
+        else:
+            retry += 1  # transient — the freshness window still has days left
+
+    print(f"\nDone: {ok} transcribed, {failed} unavailable (marked), "
+          f"{retry} to retry next run.")
 
 
 if __name__ == "__main__":

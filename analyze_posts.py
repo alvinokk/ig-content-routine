@@ -18,6 +18,7 @@ import json
 import os
 import sys
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 
@@ -29,6 +30,7 @@ TABLES = [
 MODEL = os.environ.get("CLAUDE_MODEL", "claude-haiku-4-5-20251001")
 GH_MODEL = os.environ.get("GH_MODEL", "openai/gpt-4o-mini")
 POST_LIMIT = int(os.environ.get("POST_LIMIT", "60"))
+FAIL_MARK = "(拆解失败)"
 
 SYSTEM = (
     "你是爆款短视频拆解专家,服务一个做「AI 做课卖课」教育业务的团队(华人市场)。"
@@ -59,9 +61,13 @@ def fetch_pending(pat, table_id):
     fields = "&".join("fields%5B%5D=" + urllib.parse.quote(f) for f in
                       ["Post ID", "Competitor", "Caption", "Transcript",
                        "Post Type", "Likes", "Comments", "Followers"])
+    # Newest first: a post that can never be analysed (e.g. the model's content
+    # filter rejects it) must not sit at the head of the queue forever and starve
+    # every new post out of the per-run budget.
     base_url = (
         f"https://api.airtable.com/v0/{AIRTABLE_BASE}/{table_id}"
         f"?filterByFormula={formula}&pageSize=100&{fields}"
+        f"&sort%5B0%5D%5Bfield%5D=Post%20Date&sort%5B0%5D%5Bdirection%5D=desc"
     )
     headers = {"Authorization": f"Bearer {pat}"}
     out, offset = [], None
@@ -182,9 +188,21 @@ def main():
             save(pat, it["tbl"], it["rec"], text)
             ok += 1
             print(f"[{i}/{len(queue)}] @{who} OK: {text[:50]}...")
+        except urllib.error.HTTPError as exc:
+            failed += 1
+            if exc.code == 400:
+                # The model refused this content — it will refuse it every week.
+                # Mark it so the queue moves on instead of re-serving it forever.
+                try:
+                    save(pat, it["tbl"], it["rec"], FAIL_MARK)
+                except Exception:
+                    pass
+                print(f"[{i}/{len(queue)}] @{who} REJECTED (marked): HTTP 400")
+            else:
+                print(f"[{i}/{len(queue)}] @{who} FAILED: HTTP {exc.code} (retry next run)")
         except Exception as exc:
             failed += 1
-            print(f"[{i}/{len(queue)}] @{who} FAILED: {exc}")
+            print(f"[{i}/{len(queue)}] @{who} FAILED: {exc} (retry next run)")
         time.sleep(delay)
 
     print(f"\nDone: {ok} analyzed, {failed} failed (will retry next run).")
