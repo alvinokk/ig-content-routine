@@ -65,8 +65,8 @@ BATCH_SIZE = 10         # Airtable max records per request
 BATCH_DELAY = 0.25      # seconds between Airtable batches (rate limit)
 MIN_ER = 0.03           # 3% engagement rate threshold
 MIN_COMMENTS = 50       # minimum comments threshold
-MAX_RECORDS = 900       # cleanup threshold (Free plan = 1000 max)
-STALE_DAYS = 30         # delete records not synced in this many days
+MAX_RECORDS = 900       # cleanup threshold (Airtable Free plan = 1000 max)
+PROTECTED_STATUSES = ("拍摄中", "已处理")  # never auto-delete work in progress or done
 
 # ---------------------------------------------------------------------------
 # HTTP helpers (stdlib only)
@@ -599,11 +599,14 @@ def insert_to_airtable(pat, posts):
 
 
 def cleanup_stale_records(pat):
-    """Delete records with Last Synced older than STALE_DAYS, or oldest records
-    if total count exceeds MAX_RECORDS. Returns number of records deleted."""
-    print(f"\n[Step 5b] Checking cleanup (max {MAX_RECORDS}, stale > {STALE_DAYS}d)...")
-    today = datetime.now(timezone.utc).date()
-    cutoff = (today - timedelta(days=STALE_DAYS)).isoformat()
+    """Trim the oldest records only when the table approaches MAX_RECORDS.
+
+    Deliberately NOT time-based: transcripts cannot be regenerated once
+    Instagram's video URLs expire, and AI breakdowns plus the 拍摄中/已处理
+    history are the whole point of the system. Records are removed only when
+    there is no room left, oldest first, and never if they carry work.
+    """
+    print(f"\n[Step 5b] Checking cleanup (limit {MAX_RECORDS})...")
 
     # Fetch synced date + status (status protects in-progress work)
     all_records = []
@@ -631,34 +634,26 @@ def cleanup_stale_records(pat):
     total = len(all_records)
     print(f"  Total records in table: {total}")
 
-    # Identify records to delete
-    to_delete = set()
+    if total <= MAX_RECORDS:
+        print(f"  Under the {MAX_RECORDS} limit — nothing removed.")
+        return 0
 
-    # 1) Stale records (not synced in STALE_DAYS) — never touch in-progress work
-    for rec in all_records:
-        if rec["status"] == "拍摄中":
-            continue
-        if rec["synced"] and rec["synced"] < cutoff:
-            to_delete.add(rec["id"])
+    # Over the limit: drop the oldest records that carry no work.
+    overflow = total - MAX_RECORDS
+    disposable = [r for r in all_records if r["status"] not in PROTECTED_STATUSES]
+    disposable.sort(key=lambda r: r["synced"] or "0000-00-00")
+    to_delete = {r["id"] for r in disposable[:overflow]}
 
-    stale_count = len(to_delete)
-    if stale_count:
-        print(f"  Found {stale_count} stale records (Last Synced < {cutoff})")
-
-    # 2) If still over MAX_RECORDS after removing stale, remove oldest
-    remaining = total - len(to_delete)
-    if remaining > MAX_RECORDS:
-        non_deleted = [r for r in all_records
-                       if r["id"] not in to_delete and r["status"] != "拍摄中"]
-        non_deleted.sort(key=lambda r: r["synced"] or "0000-00-00")
-        overflow = remaining - MAX_RECORDS
-        for rec in non_deleted[:overflow]:
-            to_delete.add(rec["id"])
-        print(f"  Removing {overflow} additional oldest records to stay under {MAX_RECORDS}")
+    if len(to_delete) < overflow:
+        print(f"  WARNING: {overflow} over the limit but only {len(to_delete)} "
+              f"records are safe to remove. {'/'.join(PROTECTED_STATUSES)} records "
+              f"are never auto-deleted — archive some in Airtable or upgrade the plan.")
 
     if not to_delete:
-        print("  No cleanup needed.")
+        print("  Nothing safe to remove.")
         return 0
+
+    print(f"  Over limit by {overflow} — removing {len(to_delete)} oldest unworked records")
 
     # Batch delete (max 10 per request)
     delete_list = list(to_delete)
